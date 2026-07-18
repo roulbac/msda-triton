@@ -2,7 +2,7 @@
 
 **Fast Triton kernels for multi-scale deformable attention (MSDA)** — the core operator of Deformable DETR, DINO and Mask2Former.
 
-[![CI](https://github.com/roulbac/msda-triton/actions/workflows/ci.yml/badge.svg)](https://github.com/roulbac/msda-triton/actions/workflows/ci.yml)
+[![CI](https://github.com/roulbac/msda-triton/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/roulbac/msda-triton/actions/workflows/ci.yml)
 [![Docs](https://img.shields.io/badge/docs-course%20%26%20guide-blue)](https://roulbac.github.io/msda-triton/)
 [![Python](https://img.shields.io/badge/python-3.12%2B-blue)](pyproject.toml)
 [![PyTorch](https://img.shields.io/badge/pytorch-2.9%2B-ee4c2c)](https://pytorch.org)
