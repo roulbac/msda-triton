@@ -34,30 +34,11 @@ import modal
 GPU = os.environ.get("MSDA_GPU", "A100")
 ROOT = Path(__file__).resolve().parent.parent
 
-# The image builds mmcv before a GPU is attached, so PyTorch cannot infer the
-# target architecture. Compile only for the requested Modal GPU; building all
-# architectures multiplies mmcv's already-long source build time.
-GPU_ARCH = {
-    "T4": "7.5",
-    "L4": "8.9",
-    "A10": "8.6",
-    "A10G": "8.6",
-    "L40S": "8.9",
-    "A100": "8.0",
-    "A100-40GB": "8.0",
-    "A100-80GB": "8.0",
-    "H100": "9.0",
-    "H100!": "9.0",
-    "H200": "9.0",
-    "B200": "10.0",
-    "B200+": "10.0",
-    "B300": "10.3",
-    "RTX-PRO-6000": "12.0",
-}.get(GPU)
-if GPU_ARCH is None:
+SUPPORTED_GPUS = {"L40S", "A100", "H100", "H200", "RTX-PRO-6000"}
+if GPU not in SUPPORTED_GPUS:
     raise ValueError(
-        f"No CUDA architecture is configured for MSDA_GPU={GPU!r}; "
-        "add it to GPU_ARCH in benchmarks/modal_benchmark.py"
+        f"Unsupported MSDA_GPU={GPU!r}; choose one of "
+        f"{', '.join(sorted(SUPPORTED_GPUS))}"
     )
 
 # openmmlab only ever published prebuilt mmcv wheels up to torch2.4 (its dist
@@ -77,11 +58,7 @@ image = (
     .uv_sync(
         uv_project_dir=str(ROOT),
         groups=["bench", "mmcv", "test"],
-        env={
-            "CC": "gcc",
-            "CXX": "g++",
-            "TORCH_CUDA_ARCH_LIST": GPU_ARCH,
-        },
+        env={"CC": "gcc", "CXX": "g++"},
     )
     .add_local_dir(ROOT / "src" / "msda_triton", remote_path="/root/msda_triton")
     .add_local_dir(ROOT / "tests", remote_path="/root/tests")

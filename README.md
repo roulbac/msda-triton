@@ -98,7 +98,7 @@ MSDA_GPU=A100 uv run modal run benchmarks/modal_benchmark.py --preset encoder
 uv run modal run benchmarks/modal_benchmark.py --preset encoder --resolution 1536x2048 --dtypes bf16
 ```
 
-`MSDA_GPU` accepts any Modal GPU type (`T4`, `L4`, `A10G`, `A100`, `A100-80GB`, `H100`, `H200`, `B200`, …; default `A100`). Presets follow the paper's operating points: `decoder` (B=4, Q=300) and `encoder` (B=2, Q = all pyramid tokens) at 800×1333 by default, hidden dim 256 (8 heads × 32), L=4, K=4. mmcv ships no BF16 kernel, so its bf16 rows report the error.
+`MSDA_GPU` supports `L40S`, `A100`, `H100`, `H200`, and `RTX-PRO-6000` (default `A100`). Presets follow the paper's operating points: `decoder` (B=4, Q=300) and `encoder` (B=2, Q = all pyramid tokens) at 800×1333 by default, hidden dim 256 (8 heads × 32), L=4, K=4. mmcv ships no BF16 kernel, so its bf16 rows report the error.
 
 ### Results (decoder preset, B=4, Q=300, 800×1333, D=256)
 
@@ -118,7 +118,7 @@ Device kernel time (torch.profiler CUDA self-time per call, cross-checked agains
 <details>
 <summary><b>How the benchmark image builds mmcv</b></summary>
 
-The benchmark image runs on the project's own pinned torch (`torch>=2.9`, resolved to the latest release via `uv.lock`), not an old fixed version. OpenMMLab never published prebuilt mmcv wheels past torch2.4, so mmcv is instead built from source at image-build time, against that same torch, from a `nvidia/cuda-devel` base image (see the `mmcv` dependency group and `[tool.uv.sources]` / `[tool.uv.extra-build-variables]` / `[tool.uv.extra-build-dependencies]` in `pyproject.toml`, and `Image.uv_sync(...)` in the benchmark script). The harness compiles mmcv only for the selected Modal GPU architecture, including SM 12.0 for `RTX-PRO-6000`. That build needs `nvcc`/`CUDA_HOME`, so the `mmcv` group is deliberately excluded from `uv sync`'s defaults — it's not needed to install or test the library itself.
+The benchmark image runs on the project's own pinned torch (`torch>=2.9`, resolved to the latest release via `uv.lock`), not an old fixed version. OpenMMLab never published prebuilt mmcv wheels past torch2.4, so mmcv is instead built from source at image-build time, against that same torch, from a `nvidia/cuda-devel` base image (see the `mmcv` dependency group and `[tool.uv.sources]` / `[tool.uv.extra-build-variables]` / `[tool.uv.extra-build-dependencies]` in `pyproject.toml`, and `Image.uv_sync(...)` in the benchmark script). `TORCH_CUDA_ARCH_LIST` in `pyproject.toml` covers every supported GPU architecture, including SM 12.0 for `RTX-PRO-6000`. That build needs `nvcc`/`CUDA_HOME`, so the `mmcv` group is deliberately excluded from `uv sync`'s defaults — it's not needed to install or test the library itself.
 
 </details>
 

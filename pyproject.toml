@@ -41,7 +41,7 @@ default-groups = ["test", "bench", "docs", "labs"]
 mmcv = { git = "https://github.com/open-mmlab/mmcv.git", tag = "v2.2.0" }
 
 [tool.uv.extra-build-variables]
-mmcv = { MMCV_WITH_OPS = "1", FORCE_CUDA = "1" }
+mmcv = { MMCV_WITH_OPS = "1", FORCE_CUDA = "1", TORCH_CUDA_ARCH_LIST = "8.0;8.9;9.0;12.0" }
 
 [tool.uv.extra-build-dependencies]
 mmcv = [
