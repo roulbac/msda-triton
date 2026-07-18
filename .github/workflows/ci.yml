@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  cpu-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+
+      # Project env via uv.lock: torch (pulls triton on Linux), plus the
+      # default groups (test/labs/…) for pytest and marimo notebooks.
+      # Triton AOT-compiles kernels to PTX without a GPU; the labs suite
+      # runs solutions through Triton's CPU interpreter and executes every
+      # notebook headlessly.
+      - name: Install dependencies
+        run: uv sync
+
+      # GPU-only tests skip themselves; the CPU tests validate the
+      # grid_sample reference against the hand-rolled naive implementation,
+      # plus the labs suite (solutions, interpreter runs, notebook smoke).
+      - name: Run test suite (CPU subset)
+        run: uv run pytest tests/ -v
+
+      # Ahead-of-time compile every kernel variant (fwd/bwd x fp32/fp16/bf16
+      # x SM 8.0/9.0) to PTX — catches kernel-body errors without a GPU.
+      - name: Compile Triton kernels for SM 8.0 / 9.0
+        run: uv run python scripts/compile_kernels_check.py

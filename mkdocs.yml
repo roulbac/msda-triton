@@ -1,0 +1,81 @@
+site_name: msda-triton
+site_description: >-
+  A from-scratch course on multi-scale deformable attention and the Triton
+  kernels that make it fast — no GPU background required.
+site_url: https://roulbac.github.io/msda-triton/
+repo_url: https://github.com/roulbac/msda-triton
+repo_name: roulbac/msda-triton
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  icon:
+    logo: material/lightning-bolt
+    repo: fontawesome/brands/github
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: deep purple
+      accent: deep orange
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: deep purple
+      accent: deep orange
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+  features:
+    - navigation.footer
+    - navigation.sections
+    - navigation.top
+    - navigation.tracking
+    - content.code.copy
+    - content.code.annotate
+    - content.action.edit
+    - search.suggest
+    - search.highlight
+    - toc.follow
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - footnotes
+  - md_in_html
+  - pymdownx.arithmatex:
+      generic: true
+  - pymdownx.betterem
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - tables
+  - toc:
+      permalink: true
+
+extra_javascript:
+  - javascripts/mathjax.js
+  - https://unpkg.com/mathjax@3/es5/tex-mml-chtml.js
+
+plugins:
+  - search
+
+nav:
+  - Home: index.md
+  - Hands-on Labs: labs.md
+  - The Course:
+      - 1. Deformable attention, from scratch: course/01-deformable-attention.md
+      - 2. How GPUs actually run code: course/02-gpu-programming-model.md
+      - 3. Triton in one sitting: course/03-triton-basics.md
+      - 4. The forward kernel, line by line: course/04-forward-kernel.md
+      - 5. The backward kernel: course/05-backward-kernel.md
+      - 6. Benchmarking without fooling yourself: course/06-benchmarking.md
+      - 7. Testing numerical kernels: course/07-testing.md
+      - 8. Exercises & further reading: course/08-exercises.md
+  - Reference:
+      - Glossary: glossary.md

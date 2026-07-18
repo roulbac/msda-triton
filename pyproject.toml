@@ -1,0 +1,54 @@
+[build-system]
+requires = ["uv_build>=0.8,<0.9"]
+build-backend = "uv_build"
+
+[project]
+name = "msda-triton"
+version = "0.1.0"
+description = "Triton multi-scale deformable attention (MSDA) kernels with query-block tiling and relaxed-ordering atomic backward"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    # triton is not listed explicitly: on Linux, torch depends on it already
+    # (see uv.lock); CUDA builds also bundle a pinned copy. macOS has no
+    # triton wheels — reference/CPU-only workflows there don't need it.
+    "torch>=2.9",
+]
+
+[dependency-groups]
+test = ["pytest"]
+bench = ["modal", "rich"]
+# Companion course site (docs/, deployed to GitHub Pages by docs.yml).
+# Included by default via default-groups; or `uv sync --only-group docs`.
+docs = ["mkdocs-material"]
+# Hands-on lab notebooks (labs/). Included by default; or
+# `uv sync --group labs`, then `uv run marimo edit labs/01_the_spec.py`.
+labs = ["marimo", "numpy"]
+# mmcv has no prebuilt wheel past torch2.4 (openmmlab's wheel index stops
+# there), so it's built from source against whatever torch is pinned above.
+# Kept out of default-groups: the build needs nvcc/CUDA_HOME, which most
+# machines (and CI) don't have. The Modal benchmark image opts in via
+# `Image.uv_sync(..., groups=[..., "mmcv"])` from a CUDA-devel base.
+# setuptools<81: mmcv's legacy setup.py does `import pkg_resources`, which
+# setuptools stopped bundling by default from 81 onward.
+mmcv = ["mmcv", "mmengine", "setuptools<81", "ninja"]
+
+[tool.uv]
+# Everything except mmcv (needs a CUDA toolchain — see above).
+default-groups = ["test", "bench", "docs", "labs"]
+
+[tool.uv.sources]
+mmcv = { git = "https://github.com/open-mmlab/mmcv.git", tag = "v2.2.0" }
+
+[tool.uv.extra-build-variables]
+mmcv = { MMCV_WITH_OPS = "1", FORCE_CUDA = "1", TORCH_CUDA_ARCH_LIST = "8.0;8.9;9.0" }
+
+[tool.uv.extra-build-dependencies]
+mmcv = ["setuptools<81", "ninja"]
+
+[tool.uv.build-backend]
+module-name = "msda_triton"
+module-root = "src"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
