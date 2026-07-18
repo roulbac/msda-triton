@@ -93,11 +93,12 @@ Bilinear sampling uses the reference CUDA convention $`x_{\mathrm{im}} = x \cdot
 
 ```bash
 MSDA_GPU=H100 uv run modal run benchmarks/modal_benchmark.py                  # decoder preset
+MSDA_GPU=RTX-PRO-6000 uv run modal run benchmarks/modal_benchmark.py           # RTX PRO 6000
 MSDA_GPU=A100 uv run modal run benchmarks/modal_benchmark.py --preset encoder
 uv run modal run benchmarks/modal_benchmark.py --preset encoder --resolution 1536x2048 --dtypes bf16
 ```
 
-`MSDA_GPU` accepts any Modal GPU type (`T4`, `L4`, `A10G`, `A100`, `A100-80GB`, `H100`, `H200`, `B200`, …; default `A100`). Presets follow the paper's operating points: `decoder` (B=4, Q=300) and `encoder` (B=2, Q = all pyramid tokens) at 800×1333 by default, hidden dim 256 (8 heads × 32), L=4, K=4. mmcv ships no BF16 kernel, so its bf16 rows report the error.
+`MSDA_GPU` supports `L40S`, `A100`, `H100`, `H200`, and `RTX-PRO-6000` (default `A100`). Presets follow the paper's operating points: `decoder` (B=4, Q=300) and `encoder` (B=2, Q = all pyramid tokens) at 800×1333 by default, hidden dim 256 (8 heads × 32), L=4, K=4. mmcv ships no BF16 kernel, so its bf16 rows report the error.
 
 ### Results (decoder preset, B=4, Q=300, 800×1333, D=256)
 
@@ -105,18 +106,19 @@ Device kernel time (torch.profiler CUDA self-time per call, cross-checked agains
 
 | GPU | fwd fp32 | fwd fp16 | fwd bf16 | bwd fp32 | bwd fp16 | bwd bf16 |
 |---|---|---|---|---|---|---|
-| L40S (SM 8.9) | 15µs, **1.40×** | 9µs, **3.17×** | 9µs, *n/a* | 325µs, 0.81× | 73µs, **2.90×** | 254µs, *n/a* |
-| A100 (SM 8.0) | 35µs, **1.38×** | 18µs, **3.04×** | 15µs, *n/a* | 316µs, 0.81× | 132µs, **3.90×** | 411µs, *n/a* |
-| H100 (SM 9.0) | 12µs, **2.17×** | 8µs, **4.30×** | 8µs, *n/a* | 92µs, **1.33×** | 56µs, **4.50×** | 56µs, *n/a* |
+| L40S (SM 8.9) | 15µs, **1.42×** | 9µs, **3.27×** | 9µs, *n/a* | 324µs, 0.81× | 74µs, **2.86×** | 490µs, *n/a* |
+| A100 (SM 8.0) | 35µs, **1.39×** | 17µs, **3.21×** | 18µs, *n/a* | 315µs, 0.82× | 132µs, **3.93×** | 411µs, *n/a* |
+| H100 (SM 9.0) | 12µs, **2.12×** | 8µs, **4.25×** | 8µs, *n/a* | 92µs, **1.34×** | 56µs, **4.50×** | 56µs, *n/a* |
+| RTX PRO 6000 (SM 12.0) | 13µs, **1.50×** | 8µs, **2.40×** | 8µs, *n/a* | 86µs, **1.21×** | 46µs, **4.03×** | 45µs, *n/a* |
 
-*n/a*: mmcv ships no bf16 kernel; the bf16 backward row shows the auto-selected accumulator path — native atomics on SM ≥ 9.0 / SM 8.9, FP32 scratch buffer on A100. The one cell mmcv still wins is the fp32 backward on pre-Hopper GPUs, where its shared-memory pre-reduction (`col2im_...shm_blocksize_aware_reduce`) beats plain scattered atomics by ~20% — at fp16/bf16 that advantage is dwarfed by its slower half-precision atomic path.
+*n/a*: mmcv ships no bf16 kernel; the bf16 backward row shows the auto-selected accumulator path — native atomics on SM ≥ 9.0, FP32 scratch buffer on pre-Hopper GPUs. mmcv still wins the fp32 backward on pre-Hopper GPUs, where its shared-memory pre-reduction (`col2im_...shm_blocksize_aware_reduce`) beats plain scattered atomics by ~20% — at fp16/bf16 that advantage is dwarfed by its slower half-precision atomic path.
 
 > **⚠️ Measurement pitfalls.** Two pitfalls make these kernels easy to mis-benchmark, and both made this Triton kernel look *slower* than mmcv in earlier tables. At decoder scale the kernels are 10-30µs while Triton's Python dispatch is ~40µs/call vs ~20µs for mmcv's C++ op, so (1) synchronizing inside each timed iteration measures launch latency plus idle-clock execution (~4× inflated, ranking inverted), and (2) even back-to-back CUDA event pairs report max(dispatch, kernel) once the queue is CPU-bound. Hence the profiler-based device column plus the separate dispatch-inclusive `e2e` column in the benchmark output (see [Caveats](#caveats)). The [benchmarking chapter of the course](https://roulbac.github.io/msda-triton/course/06-benchmarking/) explains both pitfalls in depth.
 
 <details>
 <summary><b>How the benchmark image builds mmcv</b></summary>
 
-The benchmark image runs on the project's own pinned torch (`torch>=2.9`, resolved to the latest release via `uv.lock`), not an old fixed version. OpenMMLab never published prebuilt mmcv wheels past torch2.4, so mmcv is instead built from source at image-build time, against that same torch, from a `nvidia/cuda-devel` base image (see the `mmcv` dependency group and `[tool.uv.sources]` / `[tool.uv.extra-build-variables]` / `[tool.uv.extra-build-dependencies]` in `pyproject.toml`, and `Image.uv_sync(...)` in the benchmark script). That build needs `nvcc`/`CUDA_HOME`, so the `mmcv` group is deliberately excluded from `uv sync`'s defaults — it's not needed to install or test the library itself.
+The benchmark image runs on the project's own pinned torch (`torch>=2.9`, resolved to the latest release via `uv.lock`), not an old fixed version. OpenMMLab never published prebuilt mmcv wheels past torch2.4, so mmcv is instead built from source at image-build time, against that same torch, from a `nvidia/cuda-devel` base image (see the `mmcv` dependency group and `[tool.uv.sources]` / `[tool.uv.extra-build-variables]` / `[tool.uv.extra-build-dependencies]` in `pyproject.toml`, and `Image.uv_sync(...)` in the benchmark script). `TORCH_CUDA_ARCH_LIST` in `pyproject.toml` covers every supported GPU architecture, including SM 12.0 for `RTX-PRO-6000`. That build needs `nvcc`/`CUDA_HOME`, so the `mmcv` group is deliberately excluded from `uv sync`'s defaults — it's not needed to install or test the library itself.
 
 </details>
 

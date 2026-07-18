@@ -34,6 +34,13 @@ import modal
 GPU = os.environ.get("MSDA_GPU", "A100")
 ROOT = Path(__file__).resolve().parent.parent
 
+SUPPORTED_GPUS = {"L40S", "A100", "H100", "H200", "RTX-PRO-6000"}
+if GPU not in SUPPORTED_GPUS:
+    raise ValueError(
+        f"Unsupported MSDA_GPU={GPU!r}; choose one of "
+        f"{', '.join(sorted(SUPPORTED_GPUS))}"
+    )
+
 # openmmlab only ever published prebuilt mmcv wheels up to torch2.4 (its dist
 # index has nothing newer), which would otherwise force this whole benchmark
 # onto a two-year-old torch/triton. Instead we build mmcv from source against
