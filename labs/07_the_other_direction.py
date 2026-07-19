@@ -4,7 +4,7 @@ __generated_with = "0.23.14"
 app = marimo.App(width="medium")
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _():
     import sys
 
@@ -20,7 +20,7 @@ def _():
     return checks, mo, torch
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
     # Lab 7 — The other direction: deriving the backward
@@ -51,7 +51,7 @@ def _(mo):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.accordion({
         "∂L/∂A — derive, then check yourself": mo.md(
@@ -90,7 +90,7 @@ def _(mo):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
     ## ✏️ The exercise — `msda_backward_torch`
@@ -156,7 +156,7 @@ def _(checks, torch):
     return (msda_backward_torch,)
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.accordion({
         "Hint 1 — reuse your Lab 2 gather verbatim": mo.md(
@@ -188,7 +188,7 @@ def _(mo):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(checks, msda_backward_torch, torch):
     def _matches_autograd():
         checks.assert_grads_match(msda_backward_torch, dtype=torch.float32)
@@ -213,7 +213,7 @@ def _(checks, msda_backward_torch, torch):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
     Notice what the checker is doing, because it's a technique to steal: the
@@ -232,7 +232,7 @@ def _(mo):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(checks, mo, msda_backward_torch, torch):
     try:
         _v, _s, _st, _l, _a = checks.make_inputs(
@@ -268,7 +268,7 @@ def _(checks, mo, msda_backward_torch, torch):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
     ---

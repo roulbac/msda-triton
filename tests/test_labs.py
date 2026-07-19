@@ -60,6 +60,44 @@ def test_lab00_solution_matches_reference():
     )
 
 
+def test_lab00_bilinear_sample_matches_grid_sample():
+    """Lab 0's `bilinear_sample` is the grid_sample-based exercise: it must
+    agree with `F.grid_sample(align_corners=False, padding_mode="zeros")` across
+    dtypes, handle out-of-bounds points, and stay differentiable w.r.t. the
+    sampling coordinates (the notebook's three bilinear checks, in CI)."""
+    import torch.nn.functional as F
+    from labs.solutions import lab00
+
+    def _pix_to_grid(pts, H, W):
+        gx = 2 * (pts[:, 0] + 0.5) / W - 1
+        gy = 2 * (pts[:, 1] + 0.5) / H - 1
+        return torch.stack([gx, gy], dim=-1)
+
+    for dtype in (torch.float64, torch.float32):
+        img = torch.randn(5, 7, 3, dtype=dtype)
+        pts = torch.rand(40, 2, dtype=dtype) * torch.tensor([10.0, 8.0], dtype=dtype) - 1.5
+        ref = F.grid_sample(
+            img.permute(2, 0, 1)[None],
+            _pix_to_grid(pts, 5, 7)[None, :, None],
+            mode="bilinear", padding_mode="zeros", align_corners=False,
+        )[0, :, :, 0].T
+        torch.testing.assert_close(lab00.bilinear_sample(img, pts), ref)
+
+    # out-of-bounds corners fade to zero (zeros padding), not clamp-to-border
+    img = torch.ones(3, 3, 2, dtype=torch.float64)
+    half = lab00.bilinear_sample(img, torch.tensor([[-0.5, 1.0]], dtype=torch.float64))
+    full = lab00.bilinear_sample(img, torch.tensor([[-1.0, 1.0]], dtype=torch.float64))
+    torch.testing.assert_close(half, torch.full((1, 2), 0.5, dtype=torch.float64))
+    torch.testing.assert_close(full, torch.zeros(1, 2, dtype=torch.float64))
+
+    # gradients reach the sampling coordinates (no int()/.item() on the path)
+    img = torch.randn(4, 5, 2)
+    pts = (torch.rand(6, 2) * 3).requires_grad_(True)
+    lab00.bilinear_sample(img, pts).sum().backward()
+    assert pts.grad is not None and torch.isfinite(pts.grad).all()
+    assert pts.grad.abs().sum() > 0
+
+
 def test_lab00_layers_collapse_and_train():
     """With offset_proj/weight_proj zeroed, the lab-0 layers must degenerate
     to plain linear reads (the notebooks' 'collapse' checks), and gradients

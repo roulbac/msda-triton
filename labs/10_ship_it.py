@@ -4,7 +4,7 @@ __generated_with = "0.23.14"
 app = marimo.App(width="medium")
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _():
     import sys
 
@@ -23,13 +23,13 @@ def _():
     return checks, mo, setup, stage, stage_banner, torch
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo, setup):
     setup.banner(mo)
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo, stage, stage_banner):
     msda_forward, _f_src = stage(5, "msda_forward")
     msda_backward, _b_src = stage(8, "msda_backward")
@@ -42,7 +42,7 @@ def _(mo, stage, stage_banner):
     return msda_backward, msda_forward, use_fp32_grad_accum
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
     # Lab 10 — Ship it
@@ -99,7 +99,7 @@ def _(checks, msda_backward, msda_forward, torch):
     return (MSDAFunction,)
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(MSDAFunction, checks, setup, torch):
     def _gradients_flow():
         _dev = "cuda" if setup.HAS_CUDA else "cpu"
@@ -124,7 +124,7 @@ def _(MSDAFunction, checks, setup, torch):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.accordion({
         "Hint — both methods": mo.md(
@@ -149,7 +149,7 @@ def _(mo):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
     ## 2. ✏️ The front door
@@ -186,7 +186,7 @@ def _(MSDAFunction, checks, torch, use_fp32_grad_accum):
     return (msda_student,)
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(checks, msda_student, setup, torch):
     def _rejects_garbage():
         _dev = "cuda" if setup.HAS_CUDA else "cpu"
@@ -230,7 +230,7 @@ def _(checks, msda_student, setup, torch):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
     ## 3. 🎓 The final exam
@@ -250,14 +250,14 @@ def _(mo):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     exam_button = mo.ui.run_button(label="🎓 Run the repo's test suite against MY operator")
     exam_button
     return (exam_button,)
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(exam_button, mo, msda_student):
     if exam_button.value:
         from labs.solutions.lab10 import run_repo_suite
@@ -282,7 +282,7 @@ def _(exam_button, mo, msda_student):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
     ## 4. Epilogue: benchmarking honestly, and what's left on the table
