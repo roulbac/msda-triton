@@ -4,7 +4,7 @@ __generated_with = "0.23.14"
 app = marimo.App(width="medium")
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _():
     import sys
 
@@ -23,20 +23,20 @@ def _():
     return checks, mo, setup, stage, stage_banner, tl, torch, triton
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo, setup):
     setup.banner(mo)
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo, stage, stage_banner):
     msda_naive, _naive_src = stage(1, "msda_naive_student")
     stage_banner(mo, {"msda_naive_student": _naive_src})
     return (msda_naive,)
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
     # Lab 5 — The forward kernel, correct
@@ -66,7 +66,7 @@ def _(mo):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
     ### ✏️ The kernel
@@ -160,7 +160,7 @@ def _(tl, triton):
     return (msda_forward,)
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.accordion({
         "Hint 1 — parameter loads": mo.md(
@@ -192,7 +192,7 @@ def _(mo):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(checks, mo, msda_forward, msda_naive, setup, torch):
     _cases = [
         dict(B=2, Q=5, M=2, D=4, shapes=[(5, 7), (3, 4)], K=3),
@@ -242,7 +242,7 @@ def _(checks, mo, msda_forward, msda_naive, setup, torch):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
     ## What you should notice about your own kernel

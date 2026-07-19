@@ -4,7 +4,7 @@ __generated_with = "0.23.14"
 app = marimo.App(width="medium")
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _():
     import sys
 
@@ -23,20 +23,20 @@ def _():
     return checks, mo, setup, stage, stage_banner, tl, torch, triton
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo, setup):
     setup.banner(mo)
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo, stage, stage_banner):
     msda_backward_torch, _bwd_src = stage(7, "msda_backward_torch")
     stage_banner(mo, {"msda_backward_torch": _bwd_src})
     return (msda_backward_torch,)
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
     # Lab 8 — Concurrent writes: races, atomics, and the backward kernel
@@ -72,7 +72,7 @@ def _(tl, torch, triton):
     return (histogram_racy,)
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
     Two programs holding the same bin can both read `5`, both write `6` — one
@@ -109,7 +109,7 @@ def _(tl, torch, triton):
     return (histogram_atomic,)
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(checks, histogram_atomic, torch):
     def _exact_counts():
         _idx = torch.randint(0, 8, (2000,))
@@ -122,7 +122,7 @@ def _(checks, histogram_atomic, torch):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(histogram_atomic, histogram_racy, mo, setup, torch):
     if setup.HAS_CUDA:
         _idx = torch.randint(0, 64, (1_000_000,), device="cuda")
@@ -152,7 +152,7 @@ def _(histogram_atomic, histogram_racy, mo, setup, torch):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
     ## 2. `sem="relaxed"` — buying speed with algebra
@@ -313,7 +313,7 @@ def _(tl, triton):
     return (msda_backward,)
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.accordion({
         "Hint — region 1 and 2 are Lab 7 lines with tl. spelling": mo.md(
@@ -337,7 +337,7 @@ def _(mo):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(checks, msda_backward, msda_backward_torch, setup, torch):
     _cases = ([dict(B=1, Q=4, M=2, D=4, shapes=[(5, 7), (3, 4)], K=2,
                     loc_lo=-0.3, loc_hi=1.3)]
@@ -369,7 +369,7 @@ def _(checks, msda_backward, msda_backward_torch, setup, torch):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(checks, mo, msda_backward, setup, torch):
     if setup.HAS_CUDA:
         _v, _s, _st, _l, _a = checks.make_inputs(
@@ -399,7 +399,7 @@ def _(checks, mo, msda_backward, setup, torch):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
     ---

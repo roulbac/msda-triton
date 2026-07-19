@@ -1,35 +1,32 @@
 """Lab 0 solution: deformable attention, deformable cross-attention, and
-multi-scale deformable attention (MSDA) as plain PyTorch layers."""
+multi-scale deformable attention (MSDA) as plain PyTorch layers, built on
+``F.grid_sample`` rather than hand-rolled interpolation."""
 
 import torch
+import torch.nn.functional as F
 from torch import nn
 
 
 def bilinear_sample(img: torch.Tensor, points: torch.Tensor) -> torch.Tensor:
     """Sample ``img`` (H, W, D) at continuous pixel coords ``points`` (N, 2).
 
-    ``points[:, 0]`` is x, ``points[:, 1]`` is y. Vectorized over N and
-    differentiable w.r.t. both ``img`` and ``points``; corners outside the
-    image contribute zero ("zeros padding"). Returns (N, D).
+    ``points[:, 0]`` is x, ``points[:, 1]`` is y. Implemented with
+    ``F.grid_sample(mode="bilinear", padding_mode="zeros", align_corners=False)``
+    — the same convention the repo uses everywhere (pixel centers at
+    integers, zeros padding). Differentiable w.r.t. both ``img`` and
+    ``points``. Returns (N, D).
     """
     H, W, D = img.shape
-    x, y = points[:, 0], points[:, 1]
-    x0f, y0f = x.floor(), y.floor()
-    lx, ly = x - x0f, y - y0f
-    x0, y0 = x0f.long(), y0f.long()
-    flat = img.reshape(H * W, D)
-    out = img.new_zeros(points.shape[0], D)
-    corners = (
-        (y0,     x0,     (1 - lx) * (1 - ly)),
-        (y0,     x0 + 1, lx * (1 - ly)),
-        (y0 + 1, x0,     (1 - lx) * ly),
-        (y0 + 1, x0 + 1, lx * ly),
-    )
-    for yy, xx, w in corners:
-        valid = (xx >= 0) & (xx < W) & (yy >= 0) & (yy < H)
-        idx = yy.clamp(0, H - 1) * W + xx.clamp(0, W - 1)
-        out = out + (w * valid).unsqueeze(-1) * flat[idx]
-    return out
+    # pixel coords -> grid_sample's [-1, 1] (align_corners=False maps grid g
+    # to x_im = ((g + 1) * W - 1) / 2 = x * W - 0.5; same for y with H).
+    scale = points.new_tensor([W, H])
+    grid = 2 * (points + 0.5) / scale - 1            # (N, 2), (x, y)
+    grid = grid[None, :, None, :]                      # (1, N, 1, 2)
+    v = img.permute(2, 0, 1)[None]                      # (1, D, H, W)
+    sampled = F.grid_sample(
+        v, grid, mode="bilinear", padding_mode="zeros", align_corners=False
+    )                                                  # (1, D, N, 1)
+    return sampled[0, :, :, 0].T                        # (N, D)
 
 
 def deform_attend(value: torch.Tensor, points: torch.Tensor,
@@ -134,7 +131,9 @@ class DeformableCrossAttention(nn.Module):
 
 
 def msda(value, spatial_shapes, sampling_locations, attention_weights):
-    """Multi-scale deformable attention — the repo's functional contract.
+    """Multi-scale deformable attention via per-level ``F.grid_sample`` — the
+    standard PyTorch fallback (same math as mmcv's
+    ``multi_scale_deformable_attn_pytorch``).
 
     value (B, S, M, D) with the L level images flattened along S;
     spatial_shapes (L, 2) of (H_l, W_l); sampling_locations
@@ -145,23 +144,26 @@ def msda(value, spatial_shapes, sampling_locations, attention_weights):
     B, S, M, D = value.shape
     _, Q, _, L, K, _ = sampling_locations.shape
     shapes = [(int(h), int(w)) for h, w in spatial_shapes]
-    starts = [0]
-    for h, w in shapes[:-1]:
-        starts.append(starts[-1] + h * w)
-
-    outs = []
-    for b in range(B):
-        for m in range(M):
-            acc = None
-            for lvl, (h, w) in enumerate(shapes):
-                img = value[b, starts[lvl]:starts[lvl] + h * w, m].reshape(h, w, D)
-                scale = sampling_locations.new_tensor([w, h])
-                pts = sampling_locations[b, :, m, lvl] * scale - 0.5
-                lvl_out = deform_attend(img, pts, attention_weights[b, :, m, lvl])
-                acc = lvl_out if acc is None else acc + lvl_out
-            outs.append(acc)
-    out = torch.stack(outs).reshape(B, M, Q, D).transpose(1, 2)
-    return out.reshape(B, Q, M * D)
+    value_list = value.split([h * w for h, w in shapes], dim=1)
+    # [0, 1] -> [-1, 1] grid_sample coordinates (align_corners=False maps
+    # grid g to x_im = ((g + 1) * W - 1) / 2 = x * W - 0.5).
+    grids = 2 * sampling_locations - 1
+    sampled = []
+    for lvl, (h, w) in enumerate(shapes):
+        # (B, H*W, M, D) -> (B*M, D, H, W)
+        v = value_list[lvl].flatten(2).transpose(1, 2).reshape(B * M, D, h, w)
+        # (B, Q, M, K, 2) -> (B*M, Q, K, 2)
+        g = grids[:, :, :, lvl].transpose(1, 2).flatten(0, 1)
+        sampled.append(
+            F.grid_sample(
+                v, g, mode="bilinear", padding_mode="zeros", align_corners=False
+            )
+        )  # (B*M, D, Q, K)
+    # L x (B*M, D, Q, K) -> (B*M, D, Q, L*K)
+    sampled = torch.stack(sampled, dim=-2).flatten(-2)
+    attn = attention_weights.transpose(1, 2).reshape(B * M, Q, L * K).unsqueeze(1)
+    out = (sampled * attn).sum(-1)  # (B*M, D, Q)
+    return out.view(B, M * D, Q).transpose(1, 2).contiguous()
 
 
 class MSDACrossAttention(nn.Module):

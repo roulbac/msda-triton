@@ -4,7 +4,7 @@ __generated_with = "0.23.14"
 app = marimo.App(width="medium")
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _():
     import sys
 
@@ -20,7 +20,7 @@ def _():
     return checks, mo, torch
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
     # Lab 1 — The spec: MSDA in plain Python
@@ -49,7 +49,7 @@ def _(mo):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
     ## 1. Bilinear interpolation: reading between pixels
@@ -72,7 +72,7 @@ def _(mo):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     slider_x = mo.ui.slider(0.0, 4.0, step=0.05, value=1.7, label="x")
     slider_y = mo.ui.slider(0.0, 3.0, step=0.05, value=1.3, label="y")
@@ -80,7 +80,7 @@ def _(mo):
     return slider_x, slider_y
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo, slider_x, slider_y):
     import math as _math
 
@@ -101,7 +101,7 @@ def _(mo, slider_x, slider_y):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
     Two conventions every implementation in this repo agrees on — get either wrong
@@ -136,7 +136,7 @@ def _(checks):
     return (bilinear_sample,)
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.accordion({
         "Hint 1 — the skeleton": mo.md(
@@ -159,7 +159,7 @@ def _(mo):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(bilinear_sample, checks, torch):
     def _center_hits_pixel():
         _img = torch.arange(12., dtype=torch.float64).reshape(3, 4, 1)
@@ -191,7 +191,7 @@ def _(bilinear_sample, checks, torch):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
     ## 2. The full operator
@@ -246,7 +246,7 @@ def _(bilinear_sample, checks):
     return (msda_naive_student,)
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.accordion({
         "Hint — level offsets": mo.md(
@@ -263,7 +263,7 @@ def _(mo):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(checks, msda_naive_student, torch):
     def _matches_reference():
         checks.assert_msda_matches(
@@ -286,7 +286,7 @@ def _(checks, msda_naive_student, torch):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
     The first check is the important one: it compares you against

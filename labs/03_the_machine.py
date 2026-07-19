@@ -4,7 +4,7 @@ __generated_with = "0.23.14"
 app = marimo.App(width="medium")
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _():
     import sys
 
@@ -20,7 +20,7 @@ def _():
     return checks, memsim, mo, np
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
     # Lab 3 — The machine: a paper GPU you can reason about
@@ -53,7 +53,7 @@ def _(mo):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
     ### ✏️ Exercise 1 — the sector counter
@@ -82,7 +82,7 @@ def _(checks, memsim, np):
     return efficiency, sectors_touched
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.accordion({
         "Hint — one warp": mo.md(
@@ -94,7 +94,7 @@ def _(mo):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(checks, efficiency, memsim, sectors_touched):
     def _contiguous_is_perfect():
         _p = memsim.contiguous(n=1024, itemsize=4)
@@ -119,7 +119,7 @@ def _(checks, efficiency, memsim, sectors_touched):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
     ### 🔬 Play: watch a stride destroy your bandwidth
@@ -129,14 +129,14 @@ def _(mo):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     stride_slider = mo.ui.slider(1, 32, step=1, value=1, label="stride (elements)")
     stride_slider
     return (stride_slider,)
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(checks, efficiency, memsim, mo, stride_slider):
     try:
         _p = memsim.strided(stride_slider.value, n=1024, itemsize=4)
@@ -152,7 +152,7 @@ def _(checks, efficiency, memsim, mo, stride_slider):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
     ## 2. The main event: predicting the MSDA kernel design
@@ -175,7 +175,7 @@ def _(mo):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(checks, efficiency, memsim, mo):
     try:
         _qb = memsim.msda_query_block(n_queries=1024, D=32, itemsize=2)
@@ -195,7 +195,7 @@ def _(checks, efficiency, memsim, mo):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
     ### Reality check
@@ -240,7 +240,7 @@ def _(checks):
     return (forward_min_bytes,)
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(checks, forward_min_bytes, mo):
     def _counts_the_traffic():
         _b = forward_min_bytes()
@@ -257,7 +257,7 @@ def _(checks, forward_min_bytes, mo):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(checks, forward_min_bytes, mo):
     try:
         _b = forward_min_bytes()
@@ -274,7 +274,7 @@ def _(checks, forward_min_bytes, mo):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
     ---

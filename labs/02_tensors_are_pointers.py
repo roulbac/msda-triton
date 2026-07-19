@@ -4,7 +4,7 @@ __generated_with = "0.23.14"
 app = marimo.App(width="medium")
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _():
     import sys
 
@@ -21,7 +21,7 @@ def _():
     return checks, mo, stage, torch
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo, stage):
     msda_naive, _naive_src = stage(1, "msda_naive_student")
     from labs.common.loader import stage_banner
@@ -30,7 +30,7 @@ def _(mo, stage):
     return (msda_naive,)
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
     # Lab 2 — Tensors are pointers
@@ -59,7 +59,7 @@ def _(mo):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
     ### ✏️ Exercise 1 — warm-up: `flat_index`
@@ -79,7 +79,7 @@ def _(checks):
     return (flat_index,)
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(checks, flat_index, torch):
     def _matches_view():
         _v = torch.arange(2 * 30 * 3 * 4).reshape(2, 30, 3, 4)
@@ -95,7 +95,7 @@ def _(checks, flat_index, torch):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
     ## The gather trick: masks before you meet masks
@@ -173,7 +173,7 @@ def _(checks, torch):
     return (flat_msda,)
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.accordion({
         "Hint 1 — one corner, end to end": mo.md(
@@ -194,7 +194,7 @@ def _(mo):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(checks, flat_msda, msda_naive, torch):
     def _matches_reference():
         checks.assert_msda_matches(flat_msda, dtype=torch.float64, takes_starts=True)
@@ -215,7 +215,7 @@ def _(checks, flat_msda, msda_naive, torch):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
     ## 3. The overflow trap
@@ -250,7 +250,7 @@ def _(checks):
     return max_flat_index, overflows_int32
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(checks, max_flat_index, overflows_int32):
     def _last_element():
         assert max_flat_index(2, 10, 3, 4) == 2 * 10 * 3 * 4 - 1
@@ -266,7 +266,7 @@ def _(checks, max_flat_index, overflows_int32):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
     Work out `2 * 4_200_000 * 8 * 32` — comfortably past $2^{31}$. This is why

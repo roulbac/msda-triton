@@ -4,7 +4,7 @@ __generated_with = "0.23.14"
 app = marimo.App(width="medium")
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _():
     import os
     import sys
@@ -28,20 +28,20 @@ def _():
     return checks, mo, setup, stage, stage_banner, torch, triton
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo, setup):
     setup.banner(mo)
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo, stage, stage_banner):
     msda_backward_kernel, _k_src = stage(8, "msda_backward_kernel")
     stage_banner(mo, {"msda_backward_kernel": _k_src})
     return (msda_backward_kernel,)
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
     # Lab 9 — Hardware detective: PTX and the precision switch
@@ -81,7 +81,7 @@ def _(mo):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
     ### ✏️ Exercise 1 — the PTX detector
@@ -107,7 +107,7 @@ def _(checks):
     return (find_atomics,)
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(checks, find_atomics):
     _FAKE_PTX = """
     .visible .entry kern(
@@ -134,7 +134,7 @@ def _(checks, find_atomics):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
     ## The experiment: your backward kernel, four ways
@@ -148,7 +148,7 @@ def _(mo):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(find_atomics, mo, msda_backward_kernel):
     from labs.solutions.lab09 import compile_backward
 
@@ -182,7 +182,7 @@ def _(find_atomics, mo, msda_backward_kernel):
     return (atomic_table,)
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
     ## ✏️ Exercise 2 — the switch
@@ -217,7 +217,7 @@ def _(checks, torch):
     return (use_fp32_grad_accum,)
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(checks, torch, use_fp32_grad_accum):
     def _truth_table():
         _t = {
@@ -237,7 +237,7 @@ def _(checks, torch, use_fp32_grad_accum):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
     *(One genuinely fuzzy row: SM 8.9 — Ada/L40S. The native bf16 atomic-add

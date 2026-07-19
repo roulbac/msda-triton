@@ -4,7 +4,7 @@ __generated_with = "0.23.14"
 app = marimo.App(width="medium")
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _():
     import sys
 
@@ -22,13 +22,13 @@ def _():
     return checks, mo, setup, tl, torch, triton
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo, setup):
     setup.banner(mo)
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
     # Lab 4 — Hello, Triton
@@ -82,7 +82,7 @@ def _(tl, torch, triton):
     return (add,)
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(add, checks, torch):
     def _adds():
         _x, _y = torch.randn(1000), torch.randn(1000)
@@ -92,7 +92,7 @@ def _(add, checks, torch):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
     Five things to internalize before rung 2:
@@ -145,7 +145,7 @@ def _(tl, torch, triton):
     return (copy2d,)
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(checks, copy2d, torch):
     def _copies_exactly():
         _x = torch.randn(37, 21)  # deliberately not multiples of 16
@@ -157,7 +157,7 @@ def _(checks, copy2d, torch):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.accordion({
         "Hint — full body": mo.md(
@@ -172,7 +172,7 @@ def _(mo):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
     ### ✏️ Rung 3 — gather: addresses that come from data
@@ -206,7 +206,7 @@ def _(tl, torch, triton):
     return (gather,)
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(checks, gather, torch):
     def _gathers():
         _src = torch.randn(500)
@@ -219,7 +219,7 @@ def _(checks, gather, torch):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
     Pause on what you just wrote: `tl.load(src_ptr + idx)` where `idx` was itself
@@ -286,7 +286,7 @@ def _(tl, torch, triton):
     return (bilinear,)
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(bilinear, checks, torch):
     def _matches_reference():
         _v, _shapes, _st, _loc, _attn = checks.make_inputs(
@@ -307,7 +307,7 @@ def _(bilinear, checks, torch):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.accordion({
         "Hint — corner loads, concretely": mo.md(
@@ -334,7 +334,7 @@ def _(mo):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
     ---

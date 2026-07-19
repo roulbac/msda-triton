@@ -4,7 +4,7 @@ __generated_with = "0.23.14"
 app = marimo.App(width="medium")
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _():
     import sys
 
@@ -18,10 +18,11 @@ def _():
     import torch.nn.functional as F
 
     from labs.common import checks
+
     return F, checks, mo, torch
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
     # Lab 0 — The idea: deformable attention in pure PyTorch
@@ -53,7 +54,7 @@ def _(mo):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _():
     # Shared SVG drawing helpers for this lab's illustrations.
     PAL = dict(
@@ -102,10 +103,15 @@ def _():
         return (f'<text x="{x:.1f}" y="{y:.1f}" fill="{color}" '
                 f'font-size="{size}" text-anchor="{anchor}"{weight}>{s}</text>')
 
-    def svg_arrow(x1, y1, x2, y2, color, width=1.5, opacity=1.0):
+    def svg_arrow(x1, y1, x2, y2, color, width=1.5, opacity=1.0, trim=0.0):
+        """Arrow from (x1, y1) to (x2, y2); `trim` stops it short of the tip
+        (e.g. a dot's radius) so the head stays visible next to markers."""
         import math
 
         ang = math.atan2(y2 - y1, x2 - x1)
+        if trim:
+            t = min(trim, max(math.hypot(x2 - x1, y2 - y1) - 5, 0))
+            x2, y2 = x2 - t * math.cos(ang), y2 - t * math.sin(ang)
         hx, hy = x2 - 6 * math.cos(ang), y2 - 6 * math.sin(ang)
         lt = (hx - 3.4 * math.sin(ang), hy + 3.4 * math.cos(ang))
         rt = (hx + 3.4 * math.sin(ang), hy - 3.4 * math.cos(ang))
@@ -120,7 +126,7 @@ def _():
     return PAL, svg_arrow, svg_dot, svg_grid, svg_rect, svg_text, svg_wrap
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
     ## 1. Why "deformable"?
@@ -150,7 +156,7 @@ def _(mo):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(PAL, mo, svg_arrow, svg_dot, svg_grid, svg_rect, svg_text, svg_wrap):
     _cell, _cols, _rows, _oy = 16, 9, 7, 36
     _titles = ["convolution", "attention", "deformable attention"]
@@ -177,7 +183,8 @@ def _(PAL, mo, svg_arrow, svg_dot, svg_grid, svg_rect, svg_text, svg_wrap):
             for _dx, _dy, _w in ((2.6, -1.8, 0.45), (-2.4, 1.6, 0.25),
                                  (3.3, 2.1, 0.20), (-1.0, -2.6, 0.10)):
                 _sx, _sy = _qx + _dx * _cell, _qy + _dy * _cell
-                _parts.append(svg_arrow(_qx, _qy, _sx, _sy, PAL["orange"]))
+                _parts.append(svg_arrow(_qx, _qy, _sx, _sy, PAL["orange"],
+                                        trim=3 + 8 * _w + 1.5))
                 _parts.append(svg_dot(_sx, _sy, 3 + 8 * _w, PAL["orange"], 0.85))
         _parts.append(svg_dot(_qx, _qy, 4.5, PAL["blue"]))
         _cxm = _ox + _cols * _cell / 2
@@ -188,7 +195,7 @@ def _(PAL, mo, svg_arrow, svg_dot, svg_grid, svg_rect, svg_text, svg_wrap):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
     *One query (blue). Convolution reads a fixed grid; attention reads
@@ -204,7 +211,7 @@ def _(mo):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
     **The sentence to internalize:** in deformable attention there are **no
@@ -216,7 +223,7 @@ def _(mo):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
     ## 2. The foundation: a differentiable read
@@ -248,7 +255,7 @@ def _(mo):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     bilin_x = mo.ui.slider(-0.75, 4.75, step=0.05, value=1.7, label="x")
     bilin_y = mo.ui.slider(-0.75, 3.75, step=0.05, value=1.3, label="y")
@@ -256,11 +263,12 @@ def _(mo):
     return bilin_x, bilin_y
 
 
-@app.cell
-def _(PAL, bilin_x, bilin_y, mo, svg_dot, svg_text, svg_wrap):
+@app.cell(hide_code=True)
+def _(PAL, bilin_x, bilin_y, mo, svg_dot, svg_rect, svg_text, svg_wrap):
     import math as _math
 
     _W, _H, _cell, _ox, _oy = 5, 4, 44, 56, 52
+    _cw, _ch = 2 * _ox + (_W - 1) * _cell, 2 * _oy + (_H - 1) * _cell
     _x, _y = bilin_x.value, bilin_y.value
     _x0, _y0 = _math.floor(_x), _math.floor(_y)
     _lx, _ly = _x - _x0, _y - _y0
@@ -270,7 +278,9 @@ def _(PAL, bilin_x, bilin_y, mo, svg_dot, svg_text, svg_wrap):
         (_x0, _y0 + 1, (1 - _lx) * _ly, "v10"),
         (_x0 + 1, _y0 + 1, _lx * _ly, "v11"),
     ]
-    _parts = []
+    # shade the unit cell the point lives in — its 4 corners do the blending
+    _parts = [svg_rect(_ox + _x0 * _cell, _oy + _y0 * _cell, _cell, _cell,
+                       PAL["lightblue"], opacity=0.55)]
     for _r in range(_H):
         for _c in range(_W):
             _parts.append(svg_dot(_ox + _c * _cell, _oy + _r * _cell, 2.2,
@@ -282,7 +292,7 @@ def _(PAL, bilin_x, bilin_y, mo, svg_dot, svg_text, svg_wrap):
         f'stroke="{PAL["grid"]}" stroke-dasharray="3 3"/>'
     )
     _px, _py = _ox + _x * _cell, _oy + _y * _cell
-    for _cx, _cy, _w, _n in _corners:
+    for _i, (_cx, _cy, _w, _n) in enumerate(_corners):
         _sx, _sy = _ox + _cx * _cell, _oy + _cy * _cell
         _inside = 0 <= _cx < _W and 0 <= _cy < _H
         _parts.append(
@@ -291,32 +301,46 @@ def _(PAL, bilin_x, bilin_y, mo, svg_dot, svg_text, svg_wrap):
         )
         _parts.append(svg_dot(_sx, _sy, 3 + 14 * _w,
                               PAL["orange"] if _inside else PAL["faint"], 0.75))
-        _parts.append(svg_text(_sx + 8, _sy - 8, f"{_w:.2f}", PAL["ink"],
-                               size=10, anchor="start"))
+        # weight label diagonally outward from the cell (off the connector
+        # lines), flipped back inward when it would leave the card
+        _right, _bottom = _i % 2 == 1, _i // 2 == 1
+        _tx, _anchor = (_sx + 7, "start") if _right else (_sx - 7, "end")
+        if _tx < 32:
+            _tx, _anchor = _sx + 7, "start"
+        elif _tx > _cw - 32:
+            _tx, _anchor = _sx - 7, "end"
+        _ty = _sy + 16 if _bottom else _sy - 9
+        if _ty > _ch - 6:
+            _ty = _sy - 9
+        elif _ty < 14:
+            _ty = _sy + 16
+        _parts.append(svg_text(_tx, _ty, f"{_w:.2f}", PAL["ink"], size=10,
+                               anchor=_anchor))
     _parts.append(svg_dot(_px, _py, 4, PAL["blue"]))
-    _parts.append(svg_text(_px + 9, _py + 14, f"({_x:.2f}, {_y:.2f})",
-                           PAL["blue"], size=10, anchor="start", bold=True))
+    _lx_lbl, _la = ((_px - 9, "end") if _px > _cw - 92
+                    else (_px + 9, "start"))
+    _ly_lbl = _py - 10 if _py > _ch - 24 else _py + 15
+    _parts.append(svg_text(_lx_lbl, _ly_lbl, f"({_x:.2f}, {_y:.2f})",
+                           PAL["blue"], size=10, anchor=_la, bold=True))
+    _in_sum = sum(_w for _cx, _cy, _w, _n in _corners
+                  if 0 <= _cx < _W and 0 <= _cy < _H)
     _rows = "\n".join(
-        f"| `{_n}` at (x={_cx}, y={_cy}) | "
-        + (f"{_w:.3f}" if 0 <= _cx < _W and 0 <= _cy < _H
-           else f"~~{_w:.3f}~~ outside → reads 0")
+        f"| `{_n}` ({_cx}, {_cy}) | {_w:.3f} | "
+        + ("✓" if 0 <= _cx < _W and 0 <= _cy < _H else "✗ → reads 0")
         + " |"
         for _cx, _cy, _w, _n in _corners
     )
     _tbl = mo.md(
         f"$l_x = {_lx:.2f}$, $l_y = {_ly:.2f}$\n\n"
-        f"| corner | weight |\n|---|---|\n{_rows}\n"
-        f"| **sum** | **{sum(_c[2] for _c in _corners):.3f}** |"
+        f"| corner (x, y) | weight | in image |\n|---|---|---|\n{_rows}\n"
+        f"| **Σ in-image** | **{_in_sum:.3f}** | |"
     )
-    mo.hstack(
-        [mo.Html(svg_wrap("".join(_parts), 2 * _ox + (_W - 1) * _cell,
-                          2 * _oy + (_H - 1) * _cell)), _tbl],
-        justify="start",
-    )
+    mo.hstack([mo.Html(svg_wrap("".join(_parts), _cw, _ch)), _tbl],
+              justify="start")
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
     Two conventions, shared by this repo, by `F.grid_sample(align_corners=False)`
@@ -331,17 +355,22 @@ def _(mo):
        offset that wanders off the map is harmless, and gradients can pull it
        back.
 
-    ### ✏️ Exercise 1 — `bilinear_sample`, vectorized
+    ### ✏️ Exercise 1 — `bilinear_sample` via `grid_sample`
 
     Sample an `(H, W, D)` image at `points` — an `(N, 2)` tensor of continuous
-    `(x, y)` **pixel** coordinates. Return `(N, D)`. Rules:
+    `(x, y)` **pixel** coordinates. Return `(N, D)`. The whole point of this
+    exercise is to reach for the native primitive: implement it with a single
+    `F.grid_sample` call. Rules:
 
-    - **No Python loop over N** (a loop over the 4 corners is fine): this
-      function will sit inside a neural layer, so it must be tensor ops.
-    - **Stay differentiable w.r.t. `points`**: keep the fractional parts as
-      tensors (`x - x.floor()`), never route coordinates through `int()` or
-      `.item()`. A checker verifies gradients actually reach `points`.
-    - Out-of-bounds corners contribute zero.
+    - **No Python loop over N**, no hand-rolled corner arithmetic — one
+      `F.grid_sample` call does it. (The math above is the *why*; `grid_sample`
+      is the *how*, and it's what every PyTorch fallback in this family uses.)
+    - **Stay differentiable w.r.t. `points`**: `grid_sample` is differentiable
+      w.r.t. the grid, so just build the grid from `points` with tensor ops —
+      don't route coordinates through `int()` or `.item()`. A checker verifies
+      gradients actually reach `points`.
+    - Out-of-bounds corners contribute zero — `padding_mode="zeros"` gives you
+      that for free.
     """)
     return
 
@@ -350,51 +379,60 @@ def _(mo):
 def _(checks):
     def bilinear_sample(img, points):
         """img: (H, W, D); points: (N, 2) of (x, y) pixel coords. -> (N, D)"""
+        import torch.nn.functional as F
         H, W, D = img.shape
         # ================= YOUR CODE =================
-        # 1. x, y = points[:, 0], points[:, 1]; corner indices + fractional
-        #    parts (as tensors)
-        # 2. flat = img.reshape(H * W, D); for each of the 4 corners: gather,
-        #    weight, and zero out-of-bounds contributions
+        # One F.grid_sample call does all of it. Steps:
+        # 1. pixel coords -> grid_sample's [-1, 1] (align_corners=False):
+        #    grid_x = 2 * (points[:, 0] + 0.5) / W - 1   (same for y with H)
+        # 2. stack to (x, y) and shape for a 4-D input (1, D, H, W):
+        #    grid = grid[:, None, None, :][None]      # (1, N, 1, 2)
+        # 3. v = img.permute(2, 0, 1)[None]        # (1, D, H, W)
+        # 4. sampled = F.grid_sample(v, grid, mode="bilinear",
+        #    padding_mode="zeros", align_corners=False)
+        # 5. return sampled[0, :, :, 0].T   # (N, D)
         raise checks.NotDoneYet()
         # =============================================
     return (bilinear_sample,)
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.accordion({
-        "Hint 1 — the skeleton": mo.md(
-            "```python\nx, y = points[:, 0], points[:, 1]\n"
-            "x0f, y0f = x.floor(), y.floor()   # float, for autograd\n"
-            "lx, ly = x - x0f, y - y0f\n"
-            "x0, y0 = x0f.long(), y0f.long()   # int, for indexing\n"
-            "flat = img.reshape(H * W, D)\n"
-            "out = img.new_zeros(points.shape[0], D)\n```\n"
-            "Then loop over the four `(yy, xx, weight)` corner triples — the "
-            "same table as the equation above, but every entry is an `(N,)` "
-            "tensor."
+        "Hint 1 — pixel → grid coords": mo.md(
+            "`F.grid_sample` samples a 4-D input `(N, C, H, W)` at a grid "
+            "`(N, H_out, W_out, 2)` in `[-1, 1]`. With one point per row, "
+            "`H_out = W_out = 1`. The `align_corners=False` map is "
+            "`x_im = ((g + 1) * W - 1) / 2 = x * W - 0.5`, so invert it:\n"
+            "```python\nscale = points.new_tensor([W, H])\n"
+            "grid = 2 * (points + 0.5) / scale - 1   # (N, 2), (x, y)\n"
+            "grid = grid[:, None, None, :][None]      # (1, N, 1, 2)\n```\n"
+            "(the leading `[None]` matches the image's batch of 1 below)."
         ),
-        "Hint 2 — the masked gather": mo.md(
-            "Torch has no masked gather, and `flat[idx]` with an out-of-range "
-            "index throws. The standard translation:\n"
-            "```python\nvalid = (xx >= 0) & (xx < W) & (yy >= 0) & (yy < H)\n"
-            "idx = yy.clamp(0, H - 1) * W + xx.clamp(0, W - 1)\n"
-            "out = out + (w * valid).unsqueeze(-1) * flat[idx]\n```\n"
-            "Make every index legal, then zero the illegal lanes. In lab 4 "
-            "you'll meet the exact same idea as "
-            "`tl.load(ptr, mask=valid, other=0.0)`."
+        "Hint 2 — the call": mo.md(
+            "`img` is `(H, W, D)`; `grid_sample` wants `(N, C, H, W)`:\n"
+            "```python\nv = img.permute(2, 0, 1)[None]        # (1, D, H, W)\n"
+            "sampled = F.grid_sample(\n"
+            "    v, grid, mode=\"bilinear\", padding_mode=\"zeros\",\n"
+            "    align_corners=False,\n"
+            ")                                  # (1, D, N, 1)\n"
+            "return sampled[0, :, :, 0].T            # (N, D)\n```\n"
+            "`padding_mode=\"zeros\"` gives zeros-padding for free (corners "
+            "outside the image contribute zero), and `align_corners=False` "
+            "places pixel centers at integers — both conventions the repo "
+            "uses everywhere. `grid_sample` is differentiable w.r.t. the "
+            "grid, so gradients reach `points` with no extra work."
         ),
         "Stuck?": mo.md(
-            "The reference solution is `labs/solutions/lab00.py` — but this "
-            "function is the load-bearing wall of everything below (and of "
-            "labs 1–10), so fight for it first."
+            "The reference solution is `labs/solutions/lab00.py` — but read "
+            "the `grid_sample` docs first; this function is the load-bearing "
+            "wall of everything below (and of labs 1–10), so fight for it first."
         ),
     })
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(F, bilinear_sample, checks, torch):
     def _pix_to_grid(pts, H, W):
         # pixel coords -> grid_sample(align_corners=False) coords
@@ -440,7 +478,7 @@ def _(F, bilinear_sample, checks, torch):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
     That third check is the one that makes deformable attention *trainable*:
@@ -483,41 +521,85 @@ def _(mo):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     head_seed = mo.ui.slider(0, 9, step=1, value=3, label="re-roll the head (seed)")
     head_seed
     return (head_seed,)
 
 
-@app.cell
-def _(PAL, head_seed, mo, svg_arrow, svg_dot, svg_grid, svg_text, svg_wrap,
-      torch):
+@app.cell(hide_code=True)
+def _(
+    PAL,
+    head_seed,
+    mo,
+    svg_arrow,
+    svg_dot,
+    svg_grid,
+    svg_rect,
+    svg_text,
+    svg_wrap,
+    torch,
+):
     _cell, _cols, _rows, _ox, _oy = 18, 10, 8, 26, 34
     _g = torch.Generator().manual_seed(int(head_seed.value))
     _offsets = torch.randn(4, 2, generator=_g) * 1.9
     _w = torch.randn(4, generator=_g).softmax(dim=0)
-    _qx, _qy = _ox + 4.3 * _cell, _oy + 3.6 * _cell
-    _parts = [svg_grid(_ox, _oy, _cols, _rows, _cell, PAL["faint"])]
+    # A self-attention query belongs to an actual pixel. Pixel (col=4, row=3)
+    # is drawn at the center of its grid cell, not at an arbitrary fractional
+    # position.
+    _qc, _qr = 4, 3
+    _qx, _qy = _ox + (_qc + 0.5) * _cell, _oy + (_qr + 0.5) * _cell
+    _parts = [
+        svg_rect(
+            _ox + _qc * _cell, _oy + _qr * _cell,
+            _cell, _cell, PAL["lightblue"],
+        ),
+        svg_grid(_ox, _oy, _cols, _rows, _cell, PAL["faint"]),
+    ]
+    import math as _math
+
     for _k in range(4):
-        _sx = _qx + float(_offsets[_k, 0]) * _cell
-        _sy = _qy + float(_offsets[_k, 1]) * _cell
-        _parts.append(svg_arrow(_qx, _qy, _sx, _sy, PAL["orange"]))
-        _parts.append(svg_dot(_sx, _sy, 3 + 11 * float(_w[_k]),
+        _dx, _dy = float(_offsets[_k, 0]), float(_offsets[_k, 1])
+        _a = float(_w[_k])
+        _r = 3 + 11 * _a
+        _sx = _qx + _dx * _cell
+        _sy = _qy + _dy * _cell
+        _parts.append(svg_arrow(_qx, _qy, _sx, _sy, PAL["orange"],
+                                trim=_r + 1.5))
+        _parts.append(svg_dot(_sx, _sy, _r, PAL["orange"], 0.85))
+        # tiny k index just past each dot (along the arrow direction) so it
+        # can be matched to the legend at a glance
+        _ang = _math.atan2(_sy - _qy, _sx - _qx)
+        _parts.append(svg_text(_sx + (_r + 7) * _math.cos(_ang),
+                               _sy + (_r + 7) * _math.sin(_ang) + 3,
+                               str(_k), PAL["ink"], size=8))
+        # Keep full labels in a stable legend rather than letting them collide
+        # with sampling points as the seed changes.
+        _parts.append(svg_dot(226, 58 + 25 * _k, 3 + 7 * _a,
                               PAL["orange"], 0.85))
-        _parts.append(svg_text(_sx + 10, _sy + 3, f"A={float(_w[_k]):.2f}",
-                               PAL["ink"], size=10, anchor="start"))
+        _parts.append(svg_text(
+            238, 61 + 25 * _k,
+            f"k={_k}: Δ=({_dx:+.1f}, {_dy:+.1f}), A={_a:.2f}",
+            PAL["ink"], size=9, anchor="start",
+        ))
     _parts.append(svg_dot(_qx, _qy, 4.5, PAL["blue"]))
     _parts.append(svg_text(_qx - 8, _qy - 8, "p_q", PAL["blue"], anchor="end",
                            bold=True))
     _parts.append(svg_text(_ox + _cols * _cell / 2, _oy - 14,
-                           "one query, one head, K = 4 — untrained",
+                           "query pixel (4, 3) + predicted offsets",
                            PAL["ink"], bold=True))
-    mo.Html(svg_wrap("".join(_parts), 340, _oy + _rows * _cell + 22))
+    _parts.append(svg_text(226, 35, "one untrained head", PAL["ink"],
+                           anchor="start", bold=True))
+    _parts.append(svg_text(
+        226, 174, "dot size = attention weight", PAL["grid"],
+        size=9, anchor="start",
+    ))
+    mo.Html(svg_wrap("".join(_parts), 410, _oy + _rows * _cell + 22))
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
     Every re-roll is a different randomly-initialized head. Training reshapes
@@ -549,7 +631,7 @@ def _(bilinear_sample, checks):
     return (deform_attend,)
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.accordion({
         "Hint": mo.md(
@@ -561,7 +643,7 @@ def _(mo):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(F, checks, deform_attend, torch):
     def _pix_to_grid(pts, H, W):
         gx = 2 * (pts[:, 0] + 0.5) / W - 1
@@ -599,7 +681,7 @@ def _(F, checks, deform_attend, torch):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
     ### ✏️ Exercise 3 — the layer
@@ -656,7 +738,7 @@ def _(checks, deform_attend, torch):
     return (DeformableAttention,)
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.accordion({
         "Hint 1 — the reference grid": mo.md(
@@ -682,7 +764,7 @@ def _(mo):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(DeformableAttention, checks, torch):
     def _make():
         torch.manual_seed(0)
@@ -727,7 +809,7 @@ def _(DeformableAttention, checks, torch):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
     ## 4. Deformable cross-attention
@@ -749,7 +831,7 @@ def _(mo):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(PAL, mo, svg_arrow, svg_dot, svg_grid, svg_rect, svg_text, svg_wrap):
     _parts = []
     _qx, _qw, _qh = 28, 104, 26
@@ -772,8 +854,9 @@ def _(PAL, mo, svg_arrow, svg_dot, svg_grid, svg_rect, svg_text, svg_wrap):
     for _i, (_rx, _ry) in enumerate(((3.0, 2.2), (8.6, 5.8), (13.2, 9.0))):
         _hl = _i == 1
         _px, _py = _ox + _rx * _cell, _oy + _ry * _cell
-        _parts.append(svg_arrow(_qx + _qw, _qys[_i] + _qh / 2, _px - 6, _py,
-                                PAL["blue"], opacity=1.0 if _hl else 0.35))
+        _parts.append(svg_arrow(_qx + _qw, _qys[_i] + _qh / 2, _px, _py,
+                                PAL["blue"], opacity=1.0 if _hl else 0.35,
+                                trim=(4 if _hl else 3) + 2))
         _parts.append(svg_dot(_px, _py, 4 if _hl else 3, PAL["blue"],
                               1.0 if _hl else 0.5))
         if _hl:
@@ -784,14 +867,14 @@ def _(PAL, mo, svg_arrow, svg_dot, svg_grid, svg_rect, svg_text, svg_wrap):
                                  (2.3, 1.7, 0.2), (-2.0, -1.0, 0.1)):
                 _sx, _sy = _px + _dx * _cell, _py + _dy * _cell
                 _parts.append(svg_arrow(_px, _py, _sx, _sy, PAL["orange"],
-                                        width=1.2))
+                                        width=1.2, trim=2.5 + 7 * _w + 1.5))
                 _parts.append(svg_dot(_sx, _sy, 2.5 + 7 * _w, PAL["orange"],
                                       0.85))
     mo.Html(svg_wrap("".join(_parts), 560, 220))
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
     **Normalized coordinates.** Reference points arrive normalized to $[0, 1]$
@@ -847,7 +930,7 @@ def _(checks, deform_attend, torch):
     return (DeformableCrossAttention,)
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.accordion({
         "Hint — what actually changes from exercise 3": mo.md(
@@ -863,7 +946,7 @@ def _(mo):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(DeformableCrossAttention, F, checks, torch):
     def _make():
         torch.manual_seed(0)
@@ -919,7 +1002,7 @@ def _(DeformableCrossAttention, F, checks, torch):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
     ## 5. Multi-scale: the real operator
@@ -947,7 +1030,7 @@ def _(mo):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     pyr_x = mo.ui.slider(0.0, 1.0, step=0.01, value=0.63, label="x (normalized)")
     pyr_y = mo.ui.slider(0.0, 1.0, step=0.01, value=0.41, label="y (normalized)")
@@ -955,8 +1038,10 @@ def _(mo):
     return pyr_x, pyr_y
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(PAL, mo, pyr_x, pyr_y, svg_dot, svg_grid, svg_rect, svg_text, svg_wrap):
+    import math as _math
+
     _levels = [(12, 16), (6, 8), (3, 4)]  # (H_l, W_l)
     _pw, _ph = 160, 120
     _oxs, _oy = (30, 225, 420), 40
@@ -965,10 +1050,28 @@ def _(PAL, mo, pyr_x, pyr_y, svg_dot, svg_grid, svg_rect, svg_text, svg_wrap):
     for _lvl, (_h, _w) in enumerate(_levels):
         _ox = _oxs[_lvl]
         _cellsz = _pw // _w
-        _cx = min(int(_xn * _w), _w - 1)
-        _cy = min(int(_yn * _h), _h - 1)
-        _parts.append(svg_rect(_ox + _cx * _cellsz, _oy + _cy * _cellsz,
-                               _cellsz, _cellsz, PAL["lightorange"]))
+        _xp, _yp = _xn * _w - 0.5, _yn * _h - 0.5
+        _x0, _y0 = _math.floor(_xp), _math.floor(_yp)
+        _lx, _ly = _xp - _x0, _yp - _y0
+        _corners = (
+            (_x0,     _y0,     (1 - _lx) * (1 - _ly)),
+            (_x0 + 1, _y0,     _lx * (1 - _ly)),
+            (_x0,     _y0 + 1, (1 - _lx) * _ly),
+            (_x0 + 1, _y0 + 1, _lx * _ly),
+        )
+        _indices = []
+        _valid_weight = 0.0
+        for _cx, _cy, _weight in _corners:
+            if _weight > 1e-9 and 0 <= _cx < _w and 0 <= _cy < _h:
+                _flat = _start + _cy * _w + _cx
+                _indices.append(_flat)
+                _valid_weight += _weight
+                _ticks.append((_flat, _weight))
+                _parts.append(svg_rect(
+                    _ox + _cx * _cellsz, _oy + _cy * _cellsz,
+                    _cellsz, _cellsz, PAL["lightorange"],
+                    opacity=0.25 + 0.75 * _weight,
+                ))
         _parts.append(svg_grid(_ox, _oy, _w, _h, _cellsz, PAL["faint"]))
         _parts.append(svg_dot(_ox + _xn * _pw, _oy + _yn * _ph, 4, PAL["blue"]))
         _parts.append(svg_text(_ox + _pw / 2, _oy - 16,
@@ -976,19 +1079,17 @@ def _(PAL, mo, pyr_x, pyr_y, svg_dot, svg_grid, svg_rect, svg_text, svg_wrap):
                                bold=True))
         _parts.append(svg_text(
             _ox + _pw / 2, _oy + _ph + 16,
-            f"(x, y) = ({_xn * _w - 0.5:.1f}, {_yn * _h - 0.5:.1f}) px",
+            f"(x, y) = ({_xp:.2f}, {_yp:.2f}) px",
             PAL["grid"], size=10,
         ))
-        _flat = _start + _cy * _w + _cx
         _parts.append(svg_text(
             _ox + _pw / 2, _oy + _ph + 30,
-            f"S index = {_start} + {_cy}·{_w} + {_cx} = {_flat}",
-            PAL["ink"], size=10,
+            f"S: {', '.join(map(str, _indices))} · Σw={_valid_weight:.2f}",
+            PAL["ink"], size=9,
         ))
-        _ticks.append((_start, _flat))
         _start += _h * _w
     _S = _start
-    _bx, _bw, _by, _bh = 30, 550, 216, 20
+    _bx, _bw, _by, _bh = 30, 550, 222, 20
     _x = _bx
     for _lvl, (_h, _w) in enumerate(_levels):
         _seg = _bw * _h * _w / _S
@@ -1001,25 +1102,32 @@ def _(PAL, mo, pyr_x, pyr_y, svg_dot, svg_grid, svg_rect, svg_text, svg_wrap):
         if _seg > 60:
             _parts.append(svg_text(_x + _seg / 2, _by + 14, f"level {_lvl}",
                                    PAL["ink"], size=10))
-        _parts.append(svg_text(_x + 2, _by + _bh + 13, f"{_ticks[_lvl][0]}",
+        _level_start = sum(h * w for h, w in _levels[:_lvl])
+        _parts.append(svg_text(_x + 2, _by + _bh + 13, f"{_level_start}",
                                PAL["grid"], size=9, anchor="start"))
-        _tickx = _bx + _bw * _ticks[_lvl][1] / _S
-        _parts.append(f'<line x1="{_tickx:.1f}" y1="{_by - 4}" '
-                      f'x2="{_tickx:.1f}" y2="{_by + _bh}" '
-                      f'stroke="{PAL["blue"]}" stroke-width="2"/>')
         _x += _seg
+    for _flat, _weight in _ticks:
+        # Draw the marker at the center of the flattened element, with opacity
+        # and width encoding its bilinear contribution.
+        _tickx = _bx + _bw * (_flat + 0.5) / _S
+        _parts.append(
+            f'<line x1="{_tickx:.1f}" y1="{_by - 5}" '
+            f'x2="{_tickx:.1f}" y2="{_by + _bh}" '
+            f'stroke="{PAL["orange"]}" stroke-width="{1 + 3 * _weight:.1f}" '
+            f'opacity="{0.3 + 0.7 * _weight:.2f}"/>'
+        )
     _parts.append(svg_text(_bx + _bw, _by + _bh + 13, f"S = {_S}",
                            PAL["grid"], size=9, anchor="end"))
     _parts.append(svg_text(
         _bx, _by - 9,
-        "the flattened S axis (blue ticks = the highlighted pixel of each level)",
+        "flattened S axis (orange ticks = valid bilinear corners; strength = weight)",
         PAL["ink"], size=10, anchor="start",
     ))
-    mo.Html(svg_wrap("".join(_parts), 610, 260))
+    mo.Html(svg_wrap("".join(_parts), 610, 278))
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
     The operator in full (Deformable DETR, eq. 3 — the equation this entire
@@ -1051,10 +1159,13 @@ def _(mo):
 
     ### ✏️ Exercise 5 — `msda`
 
-    Implement the contract. A suggested route: per level, slice the flat `S`
-    axis and reshape to an `(h, w, D)` image; map that level's locations to its
-    pixels; feed your `deform_attend`; sum the level contributions. Loops over
-    `(b, m, level)` are fine.
+    Implement the contract with the native primitive: one `F.grid_sample`
+    call per level — the standard PyTorch fallback (same math as mmcv's
+    `multi_scale_deformable_attn_pytorch`, and exactly what
+    `tests/reference_impls.py::msda_reference` does). Split `value` by level
+    along the flat `S` axis, build the grid as `2 * sampling_locations - 1`, and
+    weight the per-level samples by `attention_weights`. Loops over `level`
+    are fine; everything else is one tensor op per level.
     """)
     return
 
@@ -1063,42 +1174,58 @@ def _(mo):
 def _(checks, deform_attend):
     def msda(value, spatial_shapes, sampling_locations, attention_weights):
         """Multi-scale deformable attention. Returns (B, Q, M * D)."""
+        import torch.nn.functional as F
         B, S, M, D = value.shape
         _, Q, _, L, K, _ = sampling_locations.shape
-        _ = deform_attend  # suggested building block
+        _ = deform_attend  # you may reuse this, or go straight to grid_sample
         # ================= YOUR CODE =================
-        # 1. shapes = [(int(h), int(w)) for h, w in spatial_shapes]; level
-        #    starts = running sum of h*w
-        # 2. accumulate per-level deform_attend results per (b, m)
-        # 3. assemble (B, Q, M, D) -> (B, Q, M * D)
+        # The standard PyTorch fallback: one F.grid_sample call per level.
+        # 1. shapes = [(int(h), int(w)) for h, w in spatial_shapes];
+        #    value_list = value.split([h * w for h, w in shapes], dim=1)
+        # 2. grids = 2 * sampling_locations - 1   # [0,1] -> [-1,1]
+        # 3. per level lvl: v = value_list[lvl].flatten(2).transpose(1, 2)
+        #       .reshape(B * M, D, h, w)
+        #    g = grids[:, :, :, lvl].transpose(1, 2).flatten(0, 1)  # (B*M, Q, K, 2)
+        #    sampled.append(F.grid_sample(v, g, mode="bilinear",
+        #                               padding_mode="zeros", align_corners=False))
+        # 4. stack levels -> (B*M, D, Q, L*K); weight by attn; sum;
+        #    reshape to (B, Q, M * D)
         raise checks.NotDoneYet()
         # =============================================
     return (msda,)
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.accordion({
-        "Hint 1 — the level bookkeeping": mo.md(
+        "Hint 1 — split the S axis by level": mo.md(
             "```python\nshapes = [(int(h), int(w)) for h, w in spatial_shapes]\n"
-            "starts = [0]\nfor h, w in shapes[:-1]:\n"
-            "    starts.append(starts[-1] + h * w)\n```\n"
-            "Level `lvl`'s image for head `m` of batch `b` is\n"
-            "```python\nvalue[b, starts[lvl]:starts[lvl] + h * w, m].reshape(h, w, D)\n```"
+            "value_list = value.split([h * w for h, w in shapes], dim=1)\n"
+            "```\n"
+            "`value_list[lvl]` is `(B, H_l*W_l, M, D)` — each level already "
+            "lives in its own slice of the flat `S` axis."
         ),
-        "Hint 2 — coordinates per level": mo.md(
-            "```python\npts = sampling_locations[b, :, m, lvl] \\\n"
-            "    * sampling_locations.new_tensor([w, h]) - 0.5   # (Q, K, 2)\n```\n"
-            "then `deform_attend(img, pts, attention_weights[b, :, m, lvl])` "
-            "is one level's `(Q, D)` contribution — sum them over levels, "
-            "collect per `(b, m)`, and reshape heads into the last axis."
+        "Hint 2 — one grid_sample per level": mo.md(
+            "Locations are normalized `[0, 1]`; `grid_sample` wants "
+            "`[-1, 1]`, so `grids = 2 * sampling_locations - 1`. Then per level:\n"
+            "```python\nv = value_list[lvl].flatten(2).transpose(1, 2)\\\n"
+            "      .reshape(B * M, D, h, w)\n"
+            "g = grids[:, :, :, lvl].transpose(1, 2).flatten(0, 1)  # (B*M, Q, K, 2)\n"
+            "sampled = F.grid_sample(v, g, mode=\"bilinear\",\n"
+            "                       padding_mode=\"zeros\", align_corners=False)\n"
+            "```\n"
+            "Stack the per-level `(B*M, D, Q, K)` results over levels → "
+            "`(B*M, D, Q, L*K)`, weight by `attention_weights` reshaped to "
+            "`(B*M, 1, L*K)`, sum over the last axis, and reshape to "
+            "`(B, Q, M * D)`. This is exactly "
+            "`tests/reference_impls.py::msda_reference`."
         ),
         "Stuck?": mo.md("`labs/solutions/lab00.py`."),
     })
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(checks, msda, torch):
     def _matches_reference():
         checks.assert_msda_matches(
@@ -1130,7 +1257,7 @@ def _(checks, msda, torch):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
     That first check compares you against
@@ -1190,7 +1317,7 @@ def _(checks, msda, torch):
     return (MSDACrossAttention,)
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.accordion({
         "Hint — the two lines that are new": mo.md(
@@ -1207,7 +1334,7 @@ def _(mo):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(MSDACrossAttention, checks, torch):
     def _make():
         torch.manual_seed(0)
@@ -1262,7 +1389,7 @@ def _(MSDACrossAttention, checks, torch):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
     ## 🏁 What you built — and where the ladder goes

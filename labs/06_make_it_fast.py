@@ -4,7 +4,7 @@ __generated_with = "0.23.14"
 app = marimo.App(width="medium")
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _():
     import sys
 
@@ -23,13 +23,13 @@ def _():
     return checks, mo, setup, stage, stage_banner, tl, torch, triton
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo, setup):
     setup.banner(mo)
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo, setup):
     if not setup.HAS_CUDA:
         _msg = mo.md(
@@ -49,14 +49,14 @@ def _(mo, setup):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo, stage, stage_banner):
     msda_forward, _fwd_src = stage(5, "msda_forward")
     stage_banner(mo, {"msda_forward": _fwd_src})
     return (msda_forward,)
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
     # Lab 6 — Make it fast (and prove it)
@@ -129,7 +129,7 @@ def _(tl, triton):
     return (msda_forward_chunked,)
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(checks, msda_forward_chunked, torch):
     def _correct_at_every_width():
         _v, _s, _st, _l, _a = checks.make_inputs(
@@ -152,7 +152,7 @@ def _(checks, msda_forward_chunked, torch):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.accordion({
         "Hint — the three edits, exactly": mo.md(
@@ -167,7 +167,7 @@ def _(mo):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
     ## 2. The race (GPU)
@@ -181,7 +181,7 @@ def _(mo):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(checks, mo, msda_forward_chunked, setup, torch, triton):
     if setup.HAS_CUDA:
         _v, _s, _st, _l, _a = checks.make_inputs(
@@ -216,7 +216,7 @@ def _(checks, mo, msda_forward_chunked, setup, torch, triton):
     return (sweep_rows,)
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
     ## 3. Occupancy is a proxy — say it with numbers
@@ -250,7 +250,7 @@ def _(mo):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(checks, mo, setup, stage, torch, triton):
     if setup.HAS_CUDA:
         _kernel, _src = stage(5, "msda_forward_kernel")
@@ -284,7 +284,7 @@ def _(checks, mo, setup, stage, torch, triton):
     return (tuned_kernel,)
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
     ### ⚠️ Why the *backward* kernel must not be autotuned this way
