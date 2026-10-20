@@ -77,5 +77,6 @@ nav:
       - 6. Benchmarking without fooling yourself: course/06-benchmarking.md
       - 7. Testing numerical kernels: course/07-testing.md
       - 8. Exercises & further reading: course/08-exercises.md
+  - Running on Apple GPUs: metal.md
   - Reference:
       - Glossary: glossary.md

@@ -3,11 +3,16 @@
 Ground-truth chain:
   1. ``msda_naive`` (pure Python loops, hand-rolled bilinear) validates
      ``msda_reference`` (grid_sample-based) on CPU — no GPU needed.
-  2. ``msda_reference`` in FP32 then validates the Triton kernels (forward
-     output and all three analytic gradients) on GPU across dtypes, both
-     grad_value accumulator paths, and edge cases (out-of-bounds sampling,
-     exact grid corners, non-power-of-two head dims, non-contiguous inputs).
+  2. ``msda_reference`` in FP32 (always on CPU) then validates the GPU kernels
+     (Triton on CUDA, Metal on MPS: forward output and all three analytic
+     gradients) across dtypes, both grad_value accumulator paths, and edge
+     cases (out-of-bounds sampling, exact grid corners, non-power-of-two head
+     dims, non-contiguous inputs).
 """
+
+import importlib
+import importlib.util
+import sys
 
 import pytest
 import torch
@@ -19,9 +24,16 @@ try:  # requires triton, which CPU-only torch builds do not ship
 except ImportError:
     multi_scale_deformable_attention = None
 
-requires_cuda = pytest.mark.skipif(
-    not torch.cuda.is_available() or multi_scale_deformable_attention is None,
-    reason="CUDA GPU and triton required for the Triton kernels",
+if torch.cuda.is_available() and importlib.util.find_spec("triton") is not None:
+    DEVICE = "cuda"
+elif torch.backends.mps.is_available():
+    DEVICE = "mps"
+else:
+    DEVICE = None
+
+requires_gpu = pytest.mark.skipif(
+    DEVICE is None or multi_scale_deformable_attention is None,
+    reason="CUDA GPU + triton, or an Apple GPU (MPS), required for the kernels",
 )
 
 DTYPES = [torch.float32, torch.float16, torch.bfloat16]
@@ -67,14 +79,17 @@ def make_inputs(B, Q, M, D, shapes, K, dtype, device, loc_lo=0.0, loc_hi=1.0, se
 
 def run_reference_fp32(value, spatial_shapes, loc, attn, grad_out=None):
     """Reference forward (and optionally backward) with FP32 leaf copies of
-    the given inputs. Returns (out, grads or None)."""
-    v = value.detach().float().requires_grad_(True)
-    l = loc.detach().float().requires_grad_(True)
-    a = attn.detach().float().requires_grad_(True)
+    the given inputs, computed on CPU whatever device the inputs live on (MPS
+    grid_sample backward coverage varies by torch version). Returns CPU
+    (out, grads or None)."""
+    spatial_shapes = spatial_shapes.cpu()
+    v = value.detach().float().cpu().requires_grad_(True)
+    l = loc.detach().float().cpu().requires_grad_(True)
+    a = attn.detach().float().cpu().requires_grad_(True)
     out = msda_reference(v, spatial_shapes, l, a)
     if grad_out is None:
         return out, None
-    out.backward(grad_out.float())
+    out.backward(grad_out.float().cpu())
     return out, (v.grad, l.grad, a.grad)
 
 
@@ -110,35 +125,35 @@ def test_reference_matches_naive_cpu_exact_corners():
 # ---------------------------------------------------------------------------
 
 
-@requires_cuda
+@requires_gpu
 @pytest.mark.parametrize("dtype", DTYPES, ids=str)
 @pytest.mark.parametrize("case", CASES, ids=[c["id"] for c in CASES])
 def test_forward_matches_reference(case, dtype):
     case = {k: v for k, v in case.items() if k != "id"}
     value, spatial_shapes, starts, loc, attn = make_inputs(
-        **case, dtype=dtype, device="cuda"
+        **case, dtype=dtype, device=DEVICE
     )
     out = multi_scale_deformable_attention(value, spatial_shapes, starts, loc, attn)
     ref, _ = run_reference_fp32(value, spatial_shapes, loc, attn)
-    torch.testing.assert_close(out.float(), ref, **FWD_TOL[dtype])
+    torch.testing.assert_close(out.float().cpu(), ref, **FWD_TOL[dtype])
 
 
-@requires_cuda
+@requires_gpu
 def test_forward_out_of_bounds_locations():
     value, spatial_shapes, starts, loc, attn = make_inputs(
         B=2, Q=64, M=4, D=32, shapes=[(14, 20), (7, 10)], K=4,
-        dtype=torch.float32, device="cuda", loc_lo=-0.5, loc_hi=1.5,
+        dtype=torch.float32, device=DEVICE, loc_lo=-0.5, loc_hi=1.5,
     )
     out = multi_scale_deformable_attention(value, spatial_shapes, starts, loc, attn)
     ref, _ = run_reference_fp32(value, spatial_shapes, loc, attn)
-    torch.testing.assert_close(out, ref, **FWD_TOL[torch.float32])
+    torch.testing.assert_close(out.cpu(), ref, **FWD_TOL[torch.float32])
 
 
-@requires_cuda
+@requires_gpu
 def test_forward_level_start_index_optional_and_noncontiguous():
     value, spatial_shapes, starts, loc, attn = make_inputs(
         B=2, Q=50, M=4, D=32, shapes=[(12, 16), (6, 8)], K=4,
-        dtype=torch.float32, device="cuda",
+        dtype=torch.float32, device=DEVICE,
     )
     out = multi_scale_deformable_attention(value, spatial_shapes, starts, loc, attn)
     out_nostarts = multi_scale_deformable_attention(
@@ -158,7 +173,7 @@ def test_forward_level_start_index_optional_and_noncontiguous():
 # ---------------------------------------------------------------------------
 
 
-@requires_cuda
+@requires_gpu
 @pytest.mark.parametrize("fp32_grad_accum", [False, True], ids=["native_acc", "fp32_acc"])
 @pytest.mark.parametrize("dtype", DTYPES, ids=str)
 @pytest.mark.parametrize(
@@ -167,7 +182,7 @@ def test_forward_level_start_index_optional_and_noncontiguous():
 def test_backward_matches_reference(case, dtype, fp32_grad_accum):
     case = {k: v for k, v in case.items() if k != "id"}
     value, spatial_shapes, starts, loc, attn = make_inputs(
-        **case, dtype=dtype, device="cuda"
+        **case, dtype=dtype, device=DEVICE
     )
     v = value.clone().requires_grad_(True)
     l = loc.clone().requires_grad_(True)
@@ -184,16 +199,16 @@ def test_backward_matches_reference(case, dtype, fp32_grad_accum):
         value, spatial_shapes, loc, attn, grad_out
     )
     tol = BWD_TOL[dtype]
-    torch.testing.assert_close(v.grad.float(), gv_ref, **tol)
-    torch.testing.assert_close(l.grad.float(), gl_ref, **tol)
-    torch.testing.assert_close(a.grad.float(), ga_ref, **tol)
+    torch.testing.assert_close(v.grad.float().cpu(), gv_ref, **tol)
+    torch.testing.assert_close(l.grad.float().cpu(), gl_ref, **tol)
+    torch.testing.assert_close(a.grad.float().cpu(), ga_ref, **tol)
 
 
-@requires_cuda
+@requires_gpu
 def test_backward_out_of_bounds_locations():
     value, spatial_shapes, starts, loc, attn = make_inputs(
         B=2, Q=64, M=4, D=32, shapes=[(14, 20), (7, 10)], K=4,
-        dtype=torch.float32, device="cuda", loc_lo=-0.5, loc_hi=1.5,
+        dtype=torch.float32, device=DEVICE, loc_lo=-0.5, loc_hi=1.5,
     )
     v = value.clone().requires_grad_(True)
     l = loc.clone().requires_grad_(True)
@@ -206,18 +221,18 @@ def test_backward_out_of_bounds_locations():
         value, spatial_shapes, loc, attn, grad_out
     )
     tol = BWD_TOL[torch.float32]
-    torch.testing.assert_close(v.grad, gv_ref, **tol)
-    torch.testing.assert_close(l.grad, gl_ref, **tol)
-    torch.testing.assert_close(a.grad, ga_ref, **tol)
+    torch.testing.assert_close(v.grad.cpu(), gv_ref, **tol)
+    torch.testing.assert_close(l.grad.cpu(), gl_ref, **tol)
+    torch.testing.assert_close(a.grad.cpu(), ga_ref, **tol)
 
 
-@requires_cuda
+@requires_gpu
 def test_fp32_accum_paths_agree_at_fp32():
     """At FP32 both accumulator paths use hardware FP32 atomics and must agree
     to rounding/reordering noise."""
     value, spatial_shapes, starts, loc, attn = make_inputs(
         B=2, Q=100, M=4, D=32, shapes=[(24, 32), (12, 16)], K=4,
-        dtype=torch.float32, device="cuda",
+        dtype=torch.float32, device=DEVICE,
     )
     grads = []
     for fp32_acc in (False, True):
@@ -235,10 +250,10 @@ def test_fp32_accum_paths_agree_at_fp32():
 # ---------------------------------------------------------------------------
 
 
-@requires_cuda
+@requires_gpu
 def test_rejects_mismatched_shapes_and_dtypes():
     value, spatial_shapes, starts, loc, attn = make_inputs(
-        B=1, Q=8, M=2, D=16, shapes=[(6, 6)], K=2, dtype=torch.float32, device="cuda"
+        B=1, Q=8, M=2, D=16, shapes=[(6, 6)], K=2, dtype=torch.float32, device=DEVICE
     )
     with pytest.raises(ValueError, match="attention_weights"):
         multi_scale_deformable_attention(
@@ -251,4 +266,64 @@ def test_rejects_mismatched_shapes_and_dtypes():
     with pytest.raises(ValueError, match="CUDA"):
         multi_scale_deformable_attention(
             value.cpu(), spatial_shapes.cpu(), starts.cpu(), loc.cpu(), attn.cpu()
+        )
+
+
+# ---------------------------------------------------------------------------
+# Metal-specific
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.skipif(DEVICE != "mps", reason="Metal kernels only")
+def test_metal_chunked_launch_matches_single_launch(monkeypatch):
+    """The 32-bit dispatch grid is split into query chunks with a base offset;
+    force tiny chunks and check forward and backward are unchanged (tail
+    simdgroups, base offsets, D < 32 lane packing)."""
+    from msda_triton import metal
+
+    case = dict(B=2, Q=37, M=3, D=16, shapes=[(9, 11), (5, 6)], K=3)
+    value, spatial_shapes, starts, loc, attn = make_inputs(
+        **case, dtype=torch.float32, device="mps"
+    )
+
+    def run():
+        v = value.clone().requires_grad_(True)
+        l = loc.clone().requires_grad_(True)
+        a = attn.clone().requires_grad_(True)
+        out = multi_scale_deformable_attention(v, spatial_shapes, starts, l, a)
+        out.backward(torch.ones_like(out))
+        return out.detach(), v.grad, l.grad, a.grad
+
+    whole = run()
+    monkeypatch.setattr(metal, "_MAX_THREADS", 32 * 16 * 3)  # 3 simdgroups/launch
+    chunked = run()
+    for w, c in zip(whole, chunked):
+        torch.testing.assert_close(c.cpu(), w.cpu(), rtol=1e-5, atol=1e-5)
+
+
+# ---------------------------------------------------------------------------
+# Cross-platform packaging
+# ---------------------------------------------------------------------------
+
+
+def test_package_imports_without_triton(monkeypatch):
+    """One library, two backends: macOS has no Triton wheels, so importing the
+    package (and selecting the Metal path) must not require it. Runs on every
+    platform by hiding triton from the import system."""
+    for name in [
+        m for m in sys.modules
+        if m == "triton" or m.startswith(("triton.", "msda_triton"))
+    ]:
+        monkeypatch.delitem(sys.modules, name)
+    monkeypatch.setitem(sys.modules, "triton", None)  # `import triton` -> ImportError
+
+    pkg = importlib.import_module("msda_triton")
+    assert callable(pkg.multi_scale_deformable_attention)
+    assert importlib.import_module("msda_triton.ops").triton is None
+
+    cpu = torch.zeros(1, 1, 1, 1)
+    with pytest.raises(ValueError, match="CUDA .*MPS"):
+        pkg.multi_scale_deformable_attention(
+            cpu, torch.tensor([[1, 1]]), None, torch.zeros(1, 1, 1, 1, 1, 2),
+            torch.zeros(1, 1, 1, 1, 1),
         )

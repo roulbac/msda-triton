@@ -5,13 +5,14 @@ build-backend = "uv_build"
 [project]
 name = "msda-triton"
 version = "0.1.0"
-description = "Triton multi-scale deformable attention (MSDA) kernels with query-block tiling and relaxed-ordering atomic backward"
+description = "Multi-scale deformable attention (MSDA) kernels for NVIDIA (Triton) and Apple (Metal) GPUs, with query-block tiling and relaxed-ordering atomic backward"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
 dependencies = [
-    # triton is not listed explicitly: on Linux, torch depends on it already
-    # (see uv.lock); CUDA builds also bundle a pinned copy. macOS has no
-    # triton wheels — reference/CPU-only workflows there don't need it.
+    # One package, two backends. triton is not listed explicitly: on Linux,
+    # torch depends on it already (see uv.lock) and the CUDA path uses it.
+    # macOS has no triton wheels and doesn't need them: Apple GPUs use the
+    # Metal kernels in msda_triton/metal.py through torch's MPS backend.
     "torch>=2.9",
 ]
 

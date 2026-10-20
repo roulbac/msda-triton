@@ -1,0 +1,40 @@
+name: Metal
+
+# Correctness tests and benchmarks for the Metal kernels on GitHub-hosted Apple
+# silicon. macos-14 is excluded: its virtualized GPU reports MPS available but
+# fails the first allocation; macos-15/26 run real compute.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  metal:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [macos-15, macos-26]
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+
+      # Just the project + pytest: no docs/labs/bench groups needed.
+      - name: Install dependencies
+        run: uv sync --no-default-groups --group test
+
+      - name: Metal kernel tests
+        run: uv run pytest tests/test_msda.py -v
+
+      - name: Benchmark
+        run: |
+          uv run python benchmarks/mps_benchmark.py \
+            --json bench-${{ matrix.runner }}.json --markdown bench.md
+          { echo "### Metal benchmark (${{ matrix.runner }})"; echo; cat bench.md; } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: metal-bench-${{ matrix.runner }}
+          path: bench-${{ matrix.runner }}.json
