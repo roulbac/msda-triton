@@ -1,12 +1,19 @@
-"""Public MSDA operator backed by the Triton kernels in kernels.py."""
+"""Public MSDA operator: Triton kernels (kernels.py) on CUDA, Metal kernels
+(metal.py) on Apple GPUs via MPS."""
 
 from __future__ import annotations
 
 import torch
-import triton
 from torch.autograd.function import once_differentiable
 
-from .kernels import BWD_BLOCK_Q, BWD_NUM_WARPS, _msda_backward_kernel, _msda_forward_kernel
+from . import metal
+
+try:  # macOS has no Triton wheels; the CUDA path is then unavailable
+    import triton
+
+    from .kernels import BWD_BLOCK_Q, BWD_NUM_WARPS, _msda_backward_kernel, _msda_forward_kernel
+except ImportError:
+    triton = None
 
 _FLOAT_DTYPES = (torch.float32, torch.float16, torch.bfloat16)
 
@@ -17,7 +24,10 @@ def _use_fp32_grad_accum(value: torch.Tensor) -> bool:
     collapses atomic throughput. Only BF16 lacks a native atomic add before
     SM 9.0 (PTX ISA 7.8); FP16 has had ``red.add.noftz.f16x2`` since SM 6.0,
     and forcing it through an FP32 scratch buffer measures ~2-4x slower than
-    native FP16 atomics on Ampere/Ada."""
+    native FP16 atomics on Ampere/Ada. Metal has no half-precision atomics at
+    all, so the Metal kernels always accumulate in FP32 (this flag is moot)."""
+    if value.device.type == "mps":
+        return True
     if value.dtype != torch.bfloat16:
         return False
     return torch.cuda.get_device_capability(value.device)[0] < 9
@@ -29,14 +39,17 @@ class _MSDAFunction(torch.autograd.Function):
                 attention_weights, fp32_grad_accum):
         B, S, M, D = value.shape
         _, Q, _, L, K, _ = sampling_locations.shape
-        out = value.new_empty(B, Q, M, D)
-
-        grid = lambda meta: (triton.cdiv(Q, meta["BLOCK_Q"]), B * M)
-        _msda_forward_kernel[grid](
-            value, spatial_shapes, level_start_index,
-            sampling_locations, attention_weights, out,
-            Q, S, M=M, D=D, L=L, K=K, BLOCK_D=triton.next_power_of_2(D),
-        )
+        if value.device.type == "mps":
+            out = metal.forward(value, spatial_shapes, level_start_index,
+                                sampling_locations, attention_weights)
+        else:
+            out = value.new_empty(B, Q, M, D)
+            grid = lambda meta: (triton.cdiv(Q, meta["BLOCK_Q"]), B * M)
+            _msda_forward_kernel[grid](
+                value, spatial_shapes, level_start_index,
+                sampling_locations, attention_weights, out,
+                Q, S, M=M, D=D, L=L, K=K, BLOCK_D=triton.next_power_of_2(D),
+            )
 
         ctx.save_for_backward(value, spatial_shapes, level_start_index,
                               sampling_locations, attention_weights)
@@ -52,6 +65,13 @@ class _MSDAFunction(torch.autograd.Function):
         B, S, M, D = value.shape
         _, Q, _, L, K, _ = sampling_locations.shape
         grad_out = grad_out.reshape(B, Q, M, D).contiguous()
+
+        if value.device.type == "mps":
+            grad_value, grad_loc, grad_attn = metal.backward(
+                value, spatial_shapes, level_start_index,
+                sampling_locations, attention_weights, grad_out,
+            )
+            return grad_value, None, None, grad_loc, grad_attn, None
 
         acc_dtype = torch.float32 if ctx.fp32_grad_accum else value.dtype
         grad_value = torch.zeros_like(value, dtype=acc_dtype)
@@ -82,7 +102,8 @@ def multi_scale_deformable_attention(
     *,
     fp32_grad_accum: bool | None = None,
 ) -> torch.Tensor:
-    """Multi-scale deformable attention (Zhu et al. 2021, Eq. 1), Triton-backed.
+    """Multi-scale deformable attention (Zhu et al. 2021, Eq. 1): Triton kernels
+    on CUDA, Metal kernels on Apple GPUs (MPS).
 
     For each query, head, feature level l and sampling point k, bilinearly
     samples ``value`` at ``sampling_locations`` and aggregates the samples
@@ -105,7 +126,8 @@ def multi_scale_deformable_attention(
             FP32 accumulation for bf16 inputs on SM < 9.0 (where the bf16
             atomic add is an emulated compare-and-swap), native atomics
             otherwise — fp16 atomics are hardware-native from SM 6.0 on
-            (paper Section 4.1).
+            (paper Section 4.1). Ignored on MPS, which always accumulates in
+            FP32 (Metal has no half-precision atomics).
 
     Returns:
         ``(B, Q, M * D)`` attention output, same dtype as ``value``.
@@ -140,11 +162,13 @@ def multi_scale_deformable_attention(
         )
     if value.dtype not in _FLOAT_DTYPES:
         raise ValueError(f"unsupported dtype {value.dtype}; use fp32, fp16 or bf16")
-    if not value.is_cuda:
+    if value.device.type not in ("cuda", "mps"):
         raise ValueError(
-            "the Triton operator requires CUDA tensors; for CPU use the "
-            "reference implementation in tests/reference_impls.py"
+            "the operator requires CUDA (Triton) or MPS (Metal) tensors; for CPU "
+            "use the reference implementation in tests/reference_impls.py"
         )
+    if value.device.type == "cuda" and triton is None:
+        raise RuntimeError("the CUDA path requires triton, which is not installed")
 
     spatial_shapes = spatial_shapes.to(device=value.device, dtype=torch.int64).contiguous()
     if level_start_index is None:
