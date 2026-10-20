@@ -7,7 +7,7 @@
 [![Python](https://img.shields.io/badge/python-3.12%2B-blue)](pyproject.toml)
 [![PyTorch](https://img.shields.io/badge/pytorch-2.9%2B-ee4c2c)](https://pytorch.org)
 
-This repo reproduces the kernel design of the paper [*“Efficient Multi-Scale Deformable Attention on GPUs”*](https://openreview.net/forum?id=Q4jZ7zKNKx) (TMLR submission), and ships with a slow-but-simple reference implementation, a correctness test suite, and a [Modal](https://modal.com) benchmark harness that compares against the standard [mmcv](https://github.com/open-mmlab/mmcv) CUDA kernel.
+This repo reproduces the kernel design of the paper [*“Efficient Multi-Scale Deformable Attention on GPUs”*](https://openreview.net/forum?id=Q4jZ7zKNKx) (TMLR submission), and ships with a slow-but-simple reference implementation, a correctness test suite, and a [Modal](https://modal.com) benchmark harness that compares against the standard [mmcv](https://github.com/open-mmlab/mmcv) CUDA kernel. A Metal port of the same kernels runs on Apple GPUs (via PyTorch MPS) and is tested and benchmarked on GitHub's macOS runners.
 
 > 📚 **New to Triton, GPUs, or MSDA?** There is a full companion course at
 > **[roulbac.github.io/msda-triton](https://roulbac.github.io/msda-triton/)** that explains this
@@ -23,11 +23,12 @@ This repo reproduces the kernel design of the paper [*“Efficient Multi-Scale D
 - 🎯 **Drop-in replacement**: the signature mirrors mmcv's `MultiScaleDeformableAttnFunction`, so it slots into Deformable-DETR-family models directly.
 - 🧮 **FP32, FP16 and BF16** support with FP32 internal accumulation, including a hardware-aware backward path for BF16 on pre-Hopper GPUs.
 - ✅ **Fully differentiable** — all three analytic gradients (`grad_value`, `grad_sampling_locations`, `grad_attention_weights`) validated against a reference implementation.
-- 🐍 **Pure Python/Triton** — no CUDA toolchain, no C++ extension build; the only dependency is a CUDA build of PyTorch.
+- 🍎 **Apple GPU support** — the same operator runs on Apple silicon through a Metal port of the kernels (PyTorch MPS), with forward and all three gradients tested in CI. See [Apple GPU (Metal)](#apple-gpu-metal).
+- 🐍 **Pure Python** — no CUDA toolchain, no C++ extension build; the only dependency is PyTorch (a CUDA build for the Triton path, any macOS build for the Metal path).
 
 ## Installation
 
-Requires Python ≥ 3.12 and a CUDA build of PyTorch ≥ 2.9 (which bundles Triton).
+Requires Python ≥ 3.12 and PyTorch ≥ 2.9: a CUDA build (which bundles Triton) on Linux/NVIDIA, or a standard macOS build on Apple silicon (macOS 15+ recommended; Triton is not needed there).
 
 The project uses [uv](https://docs.astral.sh/uv/) (uv build backend, `uv.lock` pinning the full graph). `uv sync` installs the library plus the default dependency groups (`test`, `bench`, `docs`, `labs`):
 
@@ -59,6 +60,8 @@ out = multi_scale_deformable_attention(
 )   # (B, Q, M*D), fully differentiable
 ```
 
+On a Mac, use `device="mps"` instead of `"cuda"` (fp32, fp16 and bf16 are supported); the call is identical.
+
 The signature mirrors mmcv's `MultiScaleDeformableAttnFunction` (`level_start_index` may be `None`; there is no `im2col_step`). FP32, FP16 and BF16 are supported; the kernel always accumulates in FP32 internally.
 
 Slow reference implementations (`msda_reference`, grid_sample-based, and `msda_naive`, pure-Python loops) ship with the testing code in [`tests/reference_impls.py`](tests/reference_impls.py), not with the package.
@@ -84,6 +87,8 @@ The paper is a diagnostic study on A100/H100; its three load-bearing findings ma
 2. **Relaxed-ordering atomics in the backward** (paper §3.3, Fig. 8). `grad_value` is scattered with `tl.atomic_add(..., sem="relaxed")` — safe because gradient accumulation is commutative and the kernel-end barrier provides the happens-before edge. On SM 9.0+ this lowers to the native hardware reduction instruction (`RED.ADD.BF16x8`).
 
 3. **Accumulator-precision switch** (paper §3.3/§4.1). Pre-Hopper GPUs have no native **BF16** atomic add (`red.add.noftz.bf16` arrives with SM 9.0 / PTX ISA 7.8); the emulated compare-and-swap loop collapses BF16 backward bandwidth ~10×. For BF16 inputs on SM < 9.0, `grad_value` is therefore accumulated in an FP32 scratch buffer and downcast on return. FP16 is *not* routed through the scratch buffer: `red.add.noftz.f16x2` is hardware-native since SM 6.0, and native FP16 atomics measure ~2-4× faster than the FP32-accumulator path on Ampere/Ada. The default is auto-selected from `torch.cuda.get_device_capability()` and can be overridden with `fp32_grad_accum=True/False`.
+
+The Metal port ([`metal.py`](src/msda_triton/metal.py)) keeps the same math, layout and query-per-simdgroup structure — see [Apple GPU (Metal)](#apple-gpu-metal).
 
 Bilinear sampling uses the reference CUDA convention $`x_{\mathrm{im}} = x \cdot W_l - 0.5`$ (identical to `F.grid_sample(align_corners=False, padding_mode="zeros")`); out-of-bounds corners contribute zero, in both the forward and all gradients.
 
@@ -127,7 +132,7 @@ The benchmark image runs on the project's own pinned torch (`torch>=2.9`, resolv
 The ground-truth chain is: hand-rolled loop implementation (`msda_naive`) validates the `grid_sample`-based reference on CPU; the FP32 reference then validates the Triton forward **and all three analytic gradients** (`grad_value`, `grad_sampling_locations`, `grad_attention_weights`) across dtypes, both grad-accumulator paths, out-of-bounds sampling locations, exact grid-corner locations, non-power-of-two head dims, and non-contiguous inputs.
 
 ```bash
-uv run pytest tests/ -v                                    # on a CUDA machine
+uv run pytest tests/ -v                                    # on a CUDA machine or an Apple-silicon Mac
 uv run modal run benchmarks/modal_benchmark.py --run-tests # or on a Modal GPU
 ```
 
@@ -139,20 +144,23 @@ Note: because `grad_value` uses atomic accumulation, its backward is not bitwise
 
 ```
 src/msda_triton/kernels.py       # Triton forward/backward kernels (query-block tiling)
-src/msda_triton/ops.py           # autograd wrapper, validation, accumulator switch
+src/msda_triton/metal.py         # Metal (MSL) forward/backward kernels for Apple GPUs
+src/msda_triton/ops.py           # autograd wrapper, validation, accumulator switch, device dispatch
 tests/reference_impls.py         # grid_sample reference + naive loop implementation
 tests/test_msda.py               # correctness suite
 benchmarks/modal_benchmark.py    # Modal benchmark + remote test runner
+benchmarks/mps_benchmark.py      # Apple GPU benchmark (local Mac / GitHub macOS runners)
 scripts/compile_kernels_check.py # GPU-less AOT compile check (used by CI)
 docs/                            # companion course (GitHub Pages, mkdocs-material)
 labs/                            # hands-on marimo labs: rebuild the kernel from scratch
 .github/workflows/ci.yml         # CPU tests + kernel compile check on every PR
+.github/workflows/metal.yml      # Metal tests + benchmark on GitHub macOS runners
 .github/workflows/docs.yml       # builds and deploys the docs site
 ```
 
 ## Caveats
 
-- The Triton operator requires CUDA; on CPU use the reference implementation from `tests/reference_impls.py`.
+- The operator requires CUDA (Triton) or an Apple GPU (Metal/MPS); on CPU use the reference implementation from `tests/reference_impls.py`.
 - **Host-side dispatch is heavier than a C++ op.** Triton's Python launcher (JIT specialization + autotuner lookup) costs ~40µs per call vs ~20µs for mmcv's C++ extension. Device-side, the Triton forward beats mmcv at every decoder-scale operating point we measured, but at these kernel sizes (10-30µs) a drained CUDA queue makes the *wall-clock* per isolated call dispatch-bound. In real training the queue is full and this cost overlaps with GPU work; for latency-critical inference, the op is CUDA-graph capturable (zero Python overhead on replay). The benchmark reports device time and dispatch-inclusive e2e time as separate columns.
 - `grad_value` accumulation is atomic and therefore nondeterministic at the bit level; with `fp32_grad_accum=True` it is order-independent up to FP32 rounding.
 - FP16 sampling locations quantize coordinates to ~`W_l / 2048` pixels at large resolutions (inherent to the input dtype, shared by all implementations); prefer BF16/FP32 locations at encoder scale.
