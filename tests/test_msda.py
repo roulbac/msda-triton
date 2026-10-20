@@ -10,7 +10,9 @@ Ground-truth chain:
      dims, non-contiguous inputs).
 """
 
+import importlib
 import importlib.util
+import sys
 
 import pytest
 import torch
@@ -297,3 +299,31 @@ def test_metal_chunked_launch_matches_single_launch(monkeypatch):
     chunked = run()
     for w, c in zip(whole, chunked):
         torch.testing.assert_close(c.cpu(), w.cpu(), rtol=1e-5, atol=1e-5)
+
+
+# ---------------------------------------------------------------------------
+# Cross-platform packaging
+# ---------------------------------------------------------------------------
+
+
+def test_package_imports_without_triton(monkeypatch):
+    """One library, two backends: macOS has no Triton wheels, so importing the
+    package (and selecting the Metal path) must not require it. Runs on every
+    platform by hiding triton from the import system."""
+    for name in [
+        m for m in sys.modules
+        if m == "triton" or m.startswith(("triton.", "msda_triton"))
+    ]:
+        monkeypatch.delitem(sys.modules, name)
+    monkeypatch.setitem(sys.modules, "triton", None)  # `import triton` -> ImportError
+
+    pkg = importlib.import_module("msda_triton")
+    assert callable(pkg.multi_scale_deformable_attention)
+    assert importlib.import_module("msda_triton.ops").triton is None
+
+    cpu = torch.zeros(1, 1, 1, 1)
+    with pytest.raises(ValueError, match="CUDA .*MPS"):
+        pkg.multi_scale_deformable_attention(
+            cpu, torch.tensor([[1, 1]]), None, torch.zeros(1, 1, 1, 1, 1, 2),
+            torch.zeros(1, 1, 1, 1, 1),
+        )

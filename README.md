@@ -30,6 +30,13 @@ This repo reproduces the kernel design of the paper [*“Efficient Multi-Scale D
 
 Requires Python ≥ 3.12 and PyTorch ≥ 2.9: a CUDA build (which bundles Triton) on Linux/NVIDIA, or a standard macOS build on Apple silicon (macOS 15+ recommended; Triton is not needed there).
 
+One package, two backends, chosen automatically from the tensor's device — the Python API is identical:
+
+| Hardware | `device` | Kernels | Needs Triton |
+|---|---|---|---|
+| NVIDIA GPU (Linux) | `cuda` | Triton ([`kernels.py`](src/msda_triton/kernels.py)) | yes (bundled with torch on Linux) |
+| Apple silicon (macOS) | `mps` | Metal ([`metal.py`](src/msda_triton/metal.py)) | no (no Triton wheels exist for macOS) |
+
 The project uses [uv](https://docs.astral.sh/uv/) (uv build backend, `uv.lock` pinning the full graph). `uv sync` installs the library plus the default dependency groups (`test`, `bench`, `docs`, `labs`):
 
 ```bash
