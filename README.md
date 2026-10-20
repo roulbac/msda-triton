@@ -134,6 +134,37 @@ The benchmark image runs on the project's own pinned torch (`torch>=2.9`, resolv
 
 </details>
 
+## Apple GPU (Metal)
+
+On Apple silicon the operator runs through a Metal port of the kernels ([`metal.py`](src/msda_triton/metal.py)), launched with `torch.mps.compile_shader` — Triton has no Apple GPU backend, so this is a separate implementation of the same math rather than a Triton target. It keeps the CUDA path's structure (one query per simdgroup, channel lanes giving coalesced corner gathers, FP32 channel reduction by shuffle). The backward always scatters `grad_value` with relaxed `atomic_float` adds into an FP32 scratch buffer, because Metal has no half-precision atomics (the `fp32_grad_accum` flag is ignored on MPS).
+
+Correctness: the same suite as CUDA (forward and all three gradients vs. the FP32 CPU reference, fp32/fp16/bf16, out-of-bounds locations, non-power-of-two head dims) runs on GitHub's macOS runners in [`metal.yml`](.github/workflows/metal.yml) — 32 tests pass on both `macos-15` and `macos-26`. `macos-14` is excluded: its virtualized GPU reports MPS as available but fails the first allocation.
+
+### Results (Apple M1, GitHub-hosted macOS runner)
+
+[`benchmarks/mps_benchmark.py`](benchmarks/mps_benchmark.py) compares the Metal kernel to the `grid_sample`-based PyTorch reference running on the same GPU (800×1333, D=256 = 8 heads × 32, L=4, K=4, 50 iterations after warmup):
+
+```bash
+uv run python benchmarks/mps_benchmark.py                      # decoder + encoder, fp32 + fp16
+uv run python benchmarks/mps_benchmark.py --preset decoder --dtypes fp32 fp16 bf16
+```
+
+**Chip: Apple M1 (virtualized; GitHub-hosted `macos-15` runner, macOS 15.7.9, 3 CPU cores), PyTorch 2.13.0.** Wall-clock milliseconds per call, speedup of the Metal kernel over the reference:
+
+| preset | dtype | ref fwd | Metal fwd | fwd speedup | ref bwd | Metal bwd | bwd speedup |
+|---|---|--:|--:|--:|--:|--:|--:|
+| decoder (B=4, Q=300) | fp32 | 21.4 ms | 1.44 ms | **14.9×** | 28.8 ms | 4.52 ms | **6.4×** |
+| decoder (B=4, Q=300) | fp16 | 19.0 ms | 1.47 ms | **13.0×** | 25.1 ms | 6.42 ms | **3.9×** |
+| encoder (B=2, Q=22,223) | fp32 | 294 ms | 52.3 ms | **5.6×** | 633 ms | 100 ms | **6.3×** |
+| encoder (B=2, Q=22,223) | fp16 | 245 ms | 52.4 ms | **4.7×** | 610 ms | 93.6 ms | **6.5×** |
+
+*Backward = (forward + backward) − forward.* How to read these numbers:
+
+- **They are not comparable to the CUDA tables above.** Those are device kernel time on datacenter GPUs, measured against mmcv's CUDA kernel. These are wall-clock per call (a single `torch.mps.synchronize()` after a saturated queue, so host dispatch is included — MPS has no per-kernel device timer here), against the eager PyTorch reference, on a shared virtual M1.
+- **The baseline is the PyTorch fallback, not a tuned kernel.** The speedups show the Metal kernel is far better than what a Mac user gets today with `grid_sample`; they say nothing about distance from the hardware limit. The Metal kernels have not been tuned (no threadgroup-size sweep).
+- **Single CI run, shared VM.** Treat absolute numbers as indicative and use them to track regressions. An earlier run of the same benchmark at 800×1216 on `macos-26` agreed with `macos-15` to within ~5%. Reproduce on your own Mac for numbers you can rely on; CI publishes each run's table in the job summary and the raw JSON as an artifact.
+- fp16 backward is slower than fp32 because it accumulates in the same FP32 scratch buffer and then casts once at the end.
+
 ## Correctness testing
 
 The ground-truth chain is: hand-rolled loop implementation (`msda_naive`) validates the `grid_sample`-based reference on CPU; the FP32 reference then validates the Triton forward **and all three analytic gradients** (`grad_value`, `grad_sampling_locations`, `grad_attention_weights`) across dtypes, both grad-accumulator paths, out-of-bounds sampling locations, exact grid-corner locations, non-power-of-two head dims, and non-contiguous inputs.

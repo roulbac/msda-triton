@@ -2,10 +2,10 @@ name: Metal
 
 # Correctness tests and benchmarks for the Metal kernels on GitHub-hosted Apple
 # silicon. macos-14 is excluded: its virtualized GPU reports MPS available but
-# fails the first allocation (see metal-probe.yml); macos-15/26 run real compute.
+# fails the first allocation; macos-15/26 run real compute.
 on:
   push:
-    branches: [main, ci/metal-probe]
+    branches: [main]
   pull_request:
   workflow_dispatch:
 
