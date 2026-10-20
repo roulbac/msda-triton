@@ -115,7 +115,7 @@ def fmt(x):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--preset", choices=["decoder", "encoder", "both"], default="both")
-    ap.add_argument("--resolution", default="800x1216", help="HxW input image size")
+    ap.add_argument("--resolution", default="800x1333", help="HxW input image size")
     ap.add_argument("--dtypes", nargs="+", choices=list(DTYPES), default=["fp32", "fp16"])
     ap.add_argument("--iters", type=int, default=50)
     ap.add_argument("--warmup", type=int, default=10)
